@@ -15,8 +15,8 @@ Staging operator checklist: [docs/STAGING.md](docs/STAGING.md).
 ## Local development
 
 ```bash
-git clone <repo>
-cd gemini-personal-agent   # GitHub folder name may still be the clone; package is personal-assistant
+git clone https://github.com/shamikroy2001/AIToolsPA.git
+cd AIToolsPA
 
 cp .env.example .env
 docker compose up postgres redis
