@@ -1,19 +1,42 @@
-# Ignore the environment variables file
+# Environment
 .env
+.env.local
+.env*.local
+!.env.example
+!.env.staging.example
 
-# Python-related files
+# SQLite (legacy CLI)
+data/
+*.db
+*.db-wal
+*.db-shm
+
+# Python
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
-*.pyo
-
-# Ignore virtual environment directory (if using one)
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
 venv/
+.venv/
 env/
 
-# Ignore any log or temporary files
+# Node / Next.js
+node_modules/
+frontend/.next/
+frontend/out/
+frontend/coverage/
+
+# Logs / OS
 *.log
 *.tmp
 *.bak
 .DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/

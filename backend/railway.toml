@@ -1,0 +1,14 @@
+# Railway API service. In the Railway UI set Root Directory to `backend`.
+# Create a second service from the same image with start command:
+#   arq app.workers.arq_worker.WorkerSettings
+# Do not run alembic on the worker. Attach Redis and set REDIS_URL on both.
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+healthcheckPath = "/health"
+healthcheckTimeout = 120
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3

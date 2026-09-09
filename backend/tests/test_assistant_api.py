@@ -1,0 +1,127 @@
+"""Assistant profile and ask. FakeAIProvider — no live Gateway."""
+
+from datetime import datetime, timezone
+
+from fastapi.testclient import TestClient
+
+from app.ai import set_ai_provider
+from app.ai.fake import FakeAIProvider
+from conftest import TOKEN_A, TOKEN_B
+
+
+def _auth(token: str = TOKEN_A) -> dict[str, str]:
+    return {"Authorization": f"Bearer {token}"}
+
+
+def _allocate_pro(client: TestClient, user_id: str, event_id: str = "evt_ask") -> None:
+    start = int(datetime(2026, 9, 1, tzinfo=timezone.utc).timestamp())
+    end = int(datetime(2026, 10, 1, tzinfo=timezone.utc).timestamp())
+    client.post(
+        "/api/webhooks/stripe",
+        json={
+            "id": event_id,
+            "type": "customer.subscription.created",
+            "data": {
+                "object": {
+                    "id": f"sub_{event_id}",
+                    "customer": f"cus_{event_id}",
+                    "status": "active",
+                    "current_period_start": start,
+                    "current_period_end": end,
+                    "items": {"data": [{"price": {"id": "price_pro"}}]},
+                    "metadata": {"user_id": user_id},
+                }
+            },
+        },
+    )
+
+
+def _assert_no_ai_leak(payload: object) -> None:
+    text = str(payload).lower()
+    for forbidden in ("provider", "model", "tokens", "gemini", "openai", "gateway"):
+        assert forbidden not in text
+
+
+def test_profile_defaults_and_update(saas_client: TestClient):
+    created = saas_client.get("/api/me/assistant", headers=_auth())
+    assert created.status_code == 200
+    body = created.json()
+    assert body["assistant_name"] == "Assistant"
+    assert "model" not in body
+    patched = saas_client.patch(
+        "/api/me/assistant",
+        json={"assistant_name": "Riley", "personality": "Calm", "response_style": "brief"},
+        headers=_auth(),
+    )
+    assert patched.status_code == 200
+    assert patched.json()["assistant_name"] == "Riley"
+    leaked = saas_client.patch(
+        "/api/me/assistant",
+        json={"model": "anything"},
+        headers=_auth(),
+    )
+    assert leaked.status_code == 422
+
+
+def test_ask_without_credits_is_402_and_does_not_call_ai(saas_client: TestClient):
+    provider = FakeAIProvider()
+    set_ai_provider(provider)
+    saas_client.get("/api/me", headers=_auth())
+    response = saas_client.post("/api/tasks", json={"message": "Hello"}, headers=_auth())
+    assert response.status_code == 402
+    assert "Upgrade" in response.json()["detail"]
+    assert provider.calls == []
+    credits = saas_client.get("/api/credits", headers=_auth()).json()
+    assert credits["available"] == 0
+
+
+def test_ask_charges_credits_and_hides_routing(saas_client: TestClient):
+    me = saas_client.get("/api/me", headers=_auth()).json()
+    _allocate_pro(saas_client, me["id"])
+    before = saas_client.get("/api/credits", headers=_auth()).json()["available"]
+    response = saas_client.post(
+        "/api/tasks",
+        json={"message": "Summarize my week."},
+        headers=_auth(),
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "completed"
+    assert body["task_type"] == "assistant_ask"
+    assert body["reply"] == "Here is a concise answer from your assistant."
+    assert body["credits_charged"] == 5
+    _assert_no_ai_leak(body)
+    after = saas_client.get("/api/credits", headers=_auth()).json()
+    assert after["available"] == before - 5
+    listed = saas_client.get("/api/tasks", headers=_auth()).json()
+    assert listed[0]["id"] == body["id"]
+    one = saas_client.get(f"/api/tasks/{body['id']}", headers=_auth())
+    assert one.status_code == 200
+    assert one.json()["message"] == "Summarize my week."
+
+
+def test_user_cannot_read_other_tasks(saas_client: TestClient):
+    me_a = saas_client.get("/api/me", headers=_auth(TOKEN_A)).json()
+    saas_client.get("/api/me", headers=_auth(TOKEN_B))
+    _allocate_pro(saas_client, me_a["id"], "evt_iso")
+    created = saas_client.post(
+        "/api/tasks",
+        json={"message": "Private note"},
+        headers=_auth(TOKEN_A),
+    ).json()
+    denied = saas_client.get(f"/api/tasks/{created['id']}", headers=_auth(TOKEN_B))
+    assert denied.status_code == 404
+    listed_b = saas_client.get("/api/tasks", headers=_auth(TOKEN_B)).json()
+    assert listed_b == []
+
+
+def test_ai_failure_releases_reservation(saas_client: TestClient):
+    set_ai_provider(FakeAIProvider(succeed=False))
+    me = saas_client.get("/api/me", headers=_auth()).json()
+    _allocate_pro(saas_client, me["id"], "evt_fail_ai")
+    before = saas_client.get("/api/credits", headers=_auth()).json()["available"]
+    response = saas_client.post("/api/tasks", json={"message": "Hello"}, headers=_auth())
+    assert response.status_code == 503
+    after = saas_client.get("/api/credits", headers=_auth()).json()["available"]
+    assert after == before
+    set_ai_provider(FakeAIProvider())

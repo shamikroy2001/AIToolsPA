@@ -1,0 +1,22 @@
+# Database
+
+D1 uses Supabase PostgreSQL + Alembic. Legacy SQLite (`tasks` only) remains for the old CLI and is not the SaaS schema.
+
+All tenant tables include `user_id` (Clerk-mapped internal id).
+
+Planned tables (D1 unless noted):
+
+- `users` — clerk_user_id, email, plan, status
+- `subscriptions` — Stripe ids, period bounds, status
+- `plans` — slug, display price, monthly_credits, rollover_cap (amounts not hard-coded in UI)
+- `task_costs` — task_type, base/min/max credits, enabled
+- `assistant_profiles` — name, personality, response_style, timezone, language, notification prefs, working hours
+- `credit_accounts` — period bounds, allowance, rollover_cap snapshot
+- `credit_lots` — source, original/remaining, expires_at, billing_period
+- `credit_transactions` — immutable ledger; types include MONTHLY_ALLOCATION, ROLLOVER, AI_USAGE, TOPUP (D2), REFUND, ADMIN_ADJUSTMENT, EXPIRATION, RESERVATION, RELEASE
+- `assistant_tasks` — type, status, input/output, credits reserved/charged
+- `ai_usage` — provider, model, tokens, actual_cost (admin-only; never customer APIs)
+- `stripe_events` — webhook idempotency keys
+- D2: `integrations`, `scheduled_tasks`, `monitored_websites`, `notifications`
+
+RLS policies use `current_setting('app.user_id', true)`. Service role is limited to webhooks, admin, and workers that set tenant context explicitly.

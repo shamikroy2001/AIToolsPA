@@ -1,125 +1,56 @@
-# Task Manager with Reminder Notifications 🚀
+# Personal Assistant
 
-#### Description:
-Task Manager with Reminder Notifications is a Python-based application designed to help users manage their daily tasks efficiently. The program allows users to add, remove, list, and modify tasks, as well as send reminders via Gmail or SMS using Twilio. Tasks are stored persistently in a CSV file, and environment variables are used for secure credential management. This project demonstrates skills in data management, integration with external APIs, and handling dates and times—all essential abilities for modern software development.
+Multi-tenant SaaS: each customer gets a customizable personal assistant. AI providers and model names are **internal only** — customers subscribe to the assistant, not to a model marketplace.
 
-## Table of Contents
-- [Features](#features-✨)
-- [Tech Stack](#tech-stack-🖥️)
-- [Demo](#demo-🎞️)
-- [Project Structure](#project-structure-📁)
-- [Installation](#installation-💻)
-- [Configuration](#configuration-🔧)
-- [Usage](#usage-🚀)
-- [Integration with External APIs](#integration-with-external-apis-🌎)
-- [License](#license-📜)
-- [Contact](#contact-🧑🏽‍💻)
+**Current freeze: D1 Core Platform staging.** D2 is a separate staging release. Do not mix them.
 
+| Release | What ships |
+|---|---|
+| **D1-staging** (now) | Clerk, Vercel, Railway, Supabase, Stripe test subscriptions, credit ledger + rollover, assistant profile, ask via Gateway, dashboard |
+| **D2 Automation** | Gmail, Telegram, website monitoring, scheduled jobs, top-ups, fallback routing, admin analytics, hardening |
+| **Production** | After D2 acceptance |
 
-## Features ✨
-- **Add Task:** Create a new task by providing a title, description, category (from a predefined list), and a due date.
-- **Remove Task:** Delete an existing task by selecting its number from a list.
-- **List Tasks:** Display all tasks in a neatly numbered list for easy reference.
-- **Modify Task:** Update details of an existing task, including title, description, category, and due date.
-- **Send Reminders:** Send personalized reminders for tasks via SMS (using Twilio) or Gmail.
-- **CSV Storage:** Tasks are stored in a CSV file, ensuring data persistence even after the program ends.
-- **Secure Credentials:** Uses a `.env` file to manage sensitive information like API keys and passwords.
+Staging operator checklist: [docs/STAGING.md](docs/STAGING.md).
 
-## Tech Stack 🖥️
-- **Language:** Python  
-- **Notifications:** Twilio (SMS), Gmail (Email)  
-- **Storage:** CSV  
-- **Credential Management:** dotenv  
+## Local development
 
-## Demo 🎞️
-Below are example screenshots showing the application in action.
+```bash
+git clone <repo>
+cd gemini-personal-agent   # GitHub folder name may still be the clone; package is personal-assistant
 
-<p align="center">
-  <img src="./media/menu.png" alt="Menu Screenshot"><br>
-  <em>Main Menu - Initial screen showing available options.</em>
-</p>
+cp .env.example .env
+docker compose up postgres redis
 
-<p align="center">
-  <img src="./media/add_task.png" alt="Add Task Screenshot" ><br>
-  <em>Adding a Task - Example of entering task details in the CLI.</em>
-</p>
+# API
+cd backend
+python -m pip install -e ".[dev]"
+python -m alembic upgrade head
+python -m uvicorn app.main:app --reload --port 8000
 
-<p align="center">
-  <img src="./media/gmail.png" alt="Gmail Screenshot" ><br>
-  <em>Gmail Notification - Email reminder sent by the application.</em>
-</p>
+# Worker
+arq app.workers.arq_worker.WorkerSettings
 
-<p align="center">
-  <img src="./media/sms.png" alt="SMS Screenshot" ><br>
-  <em>SMS Notification - Reminder sent via Twilio.</em>
-</p>
-## Project Structure 📁
-
-```
-task-manager-python/
-├── .gitignore
-├── README.md
-├── project.py
-├── requirements.txt
-├── tasks.csv
-└── test_project.py
+# Web
+cd ../frontend
+npm install
+npm run dev
 ```
 
-## Installation 💻
-1. **Clone the repository:**
-    ```bash
-    git clone https://github.com/yourusername/your-repo.git
-    cd your-repo
-    ```
-2. **Create a virtual environment (recommended):**
-    ```bash
-    python -m venv venv
-    source venv/bin/activate  # On Windows: venv\Scripts\activate
-    ```
-3. **Install the dependencies:**
-    ```bash
-    pip install -r requirements.txt
-    ```
+- API health: http://localhost:8000/health (`release` is `D1-staging`)
+- Web: http://localhost:3000
 
-## Configuration 🔧
-Create a file named `.env` in the project root with the following content:
+## Layout
 
-```env
-# Twilio Credentials (for sending SMS)
-TWILIO_ACCOUNT_SID=your_twilio_account_sid
-TWILIO_AUTH_TOKEN=your_twilio_auth_token
-TWILIO_PHONE_NUMBER=your_twilio_phone_number
-
-# Gmail Credentials (for sending email notifications)
-SENDER_EMAIL=your_email@gmail.com
-SENDER_PASSWORD=your_app_password
+```
+frontend/          Next.js (Vercel)
+backend/           FastAPI + Arq (Railway)
+docs/              Architecture of record
+infrastructure/    Railway notes + Supabase bootstrap
+docker-compose.yml Postgres + Redis + API + worker
 ```
 
-## Usage 🚀
-1. **Run the application:**
-   ```bash
-    python project.py
-    ```
-2. **Interaction**
-- **Add Task:** Follow the on-screen instructions to input the title, description, category, and due date.
-- **Remove a Task:** Select the task number you wish to delete.
-- **List Tasks:** Displays all the tasks stored in the CSV file.
-- **Modify a Task:** Choose a task from the list and update its details.
-- **Send Reminders:** The application can send automated reminders via email or SMS based on the configured settings.
+## Product language
 
-## Integration with External APIs 🌎
-- **Twilio:** Used to send SMS reminders. Make sure your credentials in the .env file are correct and that your Twilio account is configured to send messages.
-- **Gmail:** Used to send email notifications. Remember to generate an application-specific password if you have two-factor authentication enabled on your Gmail account.
+Use: Assistant, Credits, Tasks, Connections, Monitoring.
 
-## Final Considerations 🔚
-- **Data Persistence:** All tasks are stored in a CSV file, ensuring the data remains available even after the program ends.
-- **Security:** Credentials are handled through the .env file, following best practices for managing sensitive information.
-- **Scalability:** The modular design allows you to extend the functionality of the task manager, adding new features or integrations as needed.
-
-## License 📜
-Distributed under the MIT License. See [`LICENSE`](LICENSE) for details.
-
-## Contact 🧑🏽‍💻
-
-* **GitHub:** [AlexanderMenMen](https://github.com/AlexanderMenMen)
-* **LinkedIn:** [Alexander Mendoza Mendoza](https://www.linkedin.com/in/alexander-mendoza-mendoza-876255214/)
+Never in the customer UI: model, tokens, provider, API key, temperature, LLM, BYOK.

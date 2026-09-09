@@ -1,0 +1,13 @@
+# Railway — API service (copy of backend/railway.toml for repo docs).
+# In the dashboard set Root Directory to `backend` so this file is not required.
+# Worker: same Dockerfile, start command `arq app.workers.arq_worker.WorkerSettings`.
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "backend/Dockerfile"
+
+[deploy]
+healthcheckPath = "/health"
+healthcheckTimeout = 120
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3
