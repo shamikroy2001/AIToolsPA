@@ -1,0 +1,12 @@
+# Paste these settings on the Railway **worker** service (not the API).
+# Custom Dockerfile path: Dockerfile.worker
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile.worker"
+watchPatterns = ["backend/**", "Dockerfile.worker"]
+
+[deploy]
+startCommand = "python -m arq app.workers.arq_worker.WorkerSettings"
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3

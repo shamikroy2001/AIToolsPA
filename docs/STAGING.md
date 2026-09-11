@@ -46,7 +46,7 @@ This repo cannot create your Railway / Vercel / Supabase / Clerk / Stripe projec
 2. **Railway API:** leave Root Directory **empty** (repo root). Env from `.env.staging`. `DATABASE_ADMIN_URL` is the postgres role (migrations + webhooks). `DATABASE_URL` is `pa_app`. First deploy runs `alembic upgrade head`. If a previous service used Root Directory `backend` plus Dockerfile `backend/Dockerfile` with a repo-root context, the image build fails on missing `pyproject.toml` — clear Root Directory and use the root `Dockerfile`.
 3. **Re-run GRANTs** in the bootstrap file after the first successful migrate.
 4. **Railway Redis** plugin. Copy `REDIS_URL` to API and worker.
-5. **Railway worker:** same image, start command `arq app.workers.arq_worker.WorkerSettings`. Same DB admin URL + Redis. No Gmail env.
+5. **Railway worker:** Dockerfile `Dockerfile.worker`. Start command **must** be `python -m arq app.workers.arq_worker.WorkerSettings` — not the API `alembic`/`uvicorn` command. Same `REDIS_URL` and `DATABASE_ADMIN_URL`. No Gmail env.
 6. **Vercel:** Root `frontend`. Env from `frontend/.env.example`. `NEXT_PUBLIC_API_URL` is the public Railway HTTPS origin (no trailing slash).
 7. **Clerk:** staging instance. Allowed origins = Vercel URL. JWT issuer / JWKS match Railway `CLERK_ISSUER` / `CLERK_JWKS_URL`.
 8. **Stripe:** leave dormant. Set `STRIPE_ENABLED=false` and do not configure Price IDs or webhooks until billing is turned back on.

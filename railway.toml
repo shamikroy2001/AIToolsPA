@@ -1,15 +1,15 @@
-# Railway service for the FastAPI API. Repo root = GitHub AIToolsPA.
-# Worker: same image, start command:
-#   arq app.workers.arq_worker.WorkerSettings
-# Do not run alembic on the worker. Leave Root Directory empty (repo root).
+# Railway API service only. Repo root = GitHub AIToolsPA.
+# Worker service must use Dockerfile.worker and:
+#   python -m arq app.workers.arq_worker.WorkerSettings
+# Do not reuse this startCommand on the worker.
 
 [build]
 builder = "DOCKERFILE"
 dockerfilePath = "Dockerfile"
-watchPatterns = ["backend/**", "Dockerfile", "railway.toml"]
+watchPatterns = ["backend/**", "Dockerfile", "Dockerfile.worker", "railway.toml"]
 
 [deploy]
-startCommand = "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"
+startCommand = "python -m alembic upgrade head && python -m uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"
 healthcheckPath = "/health"
 healthcheckTimeout = 120
 restartPolicyType = "ON_FAILURE"
