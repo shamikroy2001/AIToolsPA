@@ -27,7 +27,7 @@ This is the **Core Platform** staging release. D2 (Gmail, Telegram, monitors, to
 
 ## Frozen acceptance
 
-1. `GET /health` → `release` is `D1-staging`
+1. `GET https://aitoolspa-production-108b.up.railway.app/health` → `release` is `D1-staging`
 2. Sign in with Clerk; `GET /api/me` upserts the user
 3. Pricing catalog loads; Checkout/Portal return paused while Stripe is dormant
 4. Dashboard shows available credits; ask returns a reply and deducts 5 credits (needs a credit grant path — not Stripe while dormant)
@@ -47,7 +47,7 @@ This repo cannot create your Railway / Vercel / Supabase / Clerk / Stripe projec
 3. **Re-run GRANTs** in the bootstrap file after the first successful migrate.
 4. **Railway Redis** plugin. Copy `REDIS_URL` to API and worker.
 5. **Railway worker:** Dockerfile `Dockerfile.worker`. Start command **must** be `python -m arq app.workers.arq_worker.WorkerSettings` — not the API `alembic`/`uvicorn` command. Same `REDIS_URL` and `DATABASE_ADMIN_URL`. No Gmail env.
-6. **Vercel:** Root `frontend`. Env from `frontend/.env.example`. `NEXT_PUBLIC_API_URL` is the public Railway HTTPS origin (no trailing slash).
+6. **Vercel:** Root `frontend`. Env from `frontend/.env.example`. `NEXT_PUBLIC_API_URL=https://aitoolspa-production-108b.up.railway.app` (no trailing slash).
 7. **Clerk:** staging instance. Allowed origins = Vercel URL. JWT issuer / JWKS match Railway `CLERK_ISSUER` / `CLERK_JWKS_URL`.
 8. **Stripe:** leave dormant. Set `STRIPE_ENABLED=false` and do not configure Price IDs or webhooks until billing is turned back on.
 9. **AI Gateway:** key and route model IDs on Railway only.
