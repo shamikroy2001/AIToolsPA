@@ -4,7 +4,7 @@ WORKDIR /app
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
-ENV PYTHONPATH=/app/src
+ENV PYTHONPATH=/app:/app/src
 ENV PIP_DISABLE_PIP_VERSION_CHECK=1
 
 COPY pyproject.toml README.md requirements.txt alembic.ini main.py start_api.py ./

@@ -22,13 +22,22 @@ _AppSession: async_sessionmaker[AsyncSession] | None = None
 _AdminSession: async_sessionmaker[AsyncSession] | None = None
 
 
-def _make_engine(url: str) -> AsyncEngine:
-    kwargs: dict = {"pool_pre_ping": True, "pool_timeout": 15}
+def engine_connect_args(url: str) -> dict:
     if url.startswith("sqlite"):
-        kwargs["connect_args"] = {"check_same_thread": False}
-    elif needs_ssl(url):
-        kwargs["connect_args"] = {"ssl": True, "timeout": 15}
-    return create_async_engine(url, **kwargs)
+        return {"check_same_thread": False}
+    args: dict = {"timeout": 15, "command_timeout": 15}
+    if needs_ssl(url):
+        args["ssl"] = True
+    return args
+
+
+def _make_engine(url: str) -> AsyncEngine:
+    return create_async_engine(
+        url,
+        pool_pre_ping=True,
+        pool_timeout=15,
+        connect_args=engine_connect_args(url),
+    )
 
 
 def configure_engines(

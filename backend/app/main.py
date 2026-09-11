@@ -1,6 +1,7 @@
 """FastAPI application. D1-staging freeze."""
 
 from contextlib import asynccontextmanager
+import asyncio
 import logging
 
 from fastapi import FastAPI
@@ -17,26 +18,38 @@ from app.core.settings import get_settings
 from app.models.base import Base
 from app.services.plans import PlanService
 
+log = logging.getLogger("app.main")
+
+
+async def seed_plan_catalog() -> None:
+    try:
+        factory = admin_session_factory()
+        async with factory() as session:
+            await PlanService(session).ensure_defaults()
+            await session.commit()
+    except Exception:
+        log.exception("Plan seed failed; serving /health without catalog seed")
+
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     init_engines_from_settings()
     settings = get_settings()
     engine = get_app_engine()
+    seed_task: asyncio.Task | None = None
     if settings.environment == "test" and engine is not None:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
     elif settings.environment in {"staging", "production"}:
-        try:
-            factory = admin_session_factory()
-            async with factory() as session:
-                await PlanService(session).ensure_defaults()
-                await session.commit()
-        except Exception:
-            logging.getLogger("app.main").exception(
-                "Plan seed failed; serving /health without catalog seed"
-            )
+        # Must not await DB here: Starlette blocks listening until lifespan yields.
+        seed_task = asyncio.create_task(seed_plan_catalog())
     yield
+    if seed_task is not None:
+        seed_task.cancel()
+        try:
+            await seed_task
+        except (asyncio.CancelledError, Exception):
+            pass
 
 
 settings = get_settings()

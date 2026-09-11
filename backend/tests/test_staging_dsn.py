@@ -1,5 +1,6 @@
 """D1 staging freeze helpers. No live cloud calls."""
 
+from app.core.db import engine_connect_args
 from app.core.dsn import (
     cors_allowlist,
     needs_ssl,
@@ -53,3 +54,20 @@ def test_settings_merges_public_app_url(monkeypatch):
     assert settings.database_url.startswith("postgresql+asyncpg://")
     assert settings.cors_origin_list() == ["https://pa-staging.vercel.app"]
     clear_settings_cache()
+
+
+def test_remote_engine_always_sets_connect_timeout():
+    args = engine_connect_args(
+        "postgresql+asyncpg://pa_app:x@db.example.supabase.co:5432/postgres"
+    )
+    assert args["timeout"] == 15
+    assert args["command_timeout"] == 15
+    assert args["ssl"] is True
+
+
+def test_local_engine_sets_timeout_without_ssl():
+    args = engine_connect_args(
+        "postgresql+asyncpg://pa_app:pa_app@postgres:5432/personal_assistant"
+    )
+    assert args["timeout"] == 15
+    assert "ssl" not in args
