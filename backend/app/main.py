@@ -1,6 +1,7 @@
 """FastAPI application. D1-staging freeze."""
 
 from contextlib import asynccontextmanager
+import logging
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -26,10 +27,15 @@ async def lifespan(_app: FastAPI):
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
     elif settings.environment in {"staging", "production"}:
-        factory = admin_session_factory()
-        async with factory() as session:
-            await PlanService(session).ensure_defaults()
-            await session.commit()
+        try:
+            factory = admin_session_factory()
+            async with factory() as session:
+                await PlanService(session).ensure_defaults()
+                await session.commit()
+        except Exception:
+            logging.getLogger("app.main").exception(
+                "Plan seed failed; serving /health without catalog seed"
+            )
     yield
 
 

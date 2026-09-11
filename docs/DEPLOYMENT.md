@@ -13,7 +13,7 @@ cd frontend && npm install && npm run dev
 The freeze contract, in/out of scope, and acceptance list live in [STAGING.md](STAGING.md). Env templates: `.env.staging.example` (Railway) and `frontend/.env.example` (Vercel).
 
 1. Supabase Postgres. Create `pa_app`, then let the API run Alembic (`0001`–`0003`). Re-apply GRANTs from `infrastructure/supabase/bootstrap.sql`.
-2. Railway **API**: leave **Root Directory empty** (Git repo root). Uses the root `Dockerfile`, which copies `backend/`. Health `/health`. Start is `python -m alembic upgrade head && python -m uvicorn app.main:app`. If Root Directory is `backend`, use `backend/Dockerfile` instead — do not point Dockerfile at `backend/Dockerfile` while the context is the repo root (COPY of `pyproject.toml` fails).
+2. Railway **API**: leave **Root Directory empty**. Dockerfile at repo root. Start command `python start_api.py` (binds Railway `$PORT` in-process). Health `/health`.
 3. Railway **worker**: Dockerfile `Dockerfile.worker`, start `python -m arq app.workers.arq_worker.WorkerSettings`. Do not run Alembic on this service.
 4. Railway Redis; `REDIS_URL` on API and worker. Worker also needs `DATABASE_ADMIN_URL`.
 5. Vercel `frontend/`. `NEXT_PUBLIC_API_URL` = Railway API. Only Clerk **publishable** key in Next.js.

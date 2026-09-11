@@ -9,7 +9,7 @@ ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app/src
 ENV PIP_DISABLE_PIP_VERSION_CHECK=1
 
-COPY backend/pyproject.toml backend/README.md backend/requirements.txt backend/alembic.ini backend/main.py ./
+COPY backend/pyproject.toml backend/README.md backend/requirements.txt backend/alembic.ini backend/main.py backend/start_api.py ./
 COPY backend/src ./src
 COPY backend/app ./app
 COPY backend/migrations ./migrations
@@ -19,4 +19,4 @@ RUN pip install --no-cache-dir --upgrade pip \
 
 EXPOSE 8000
 
-CMD ["sh", "-c", "python -m alembic upgrade head && python -m uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+CMD ["python", "start_api.py"]

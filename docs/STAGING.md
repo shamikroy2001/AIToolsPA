@@ -43,7 +43,7 @@ This is the **Core Platform** staging release. D2 (Gmail, Telegram, monitors, to
 This repo cannot create your Railway / Vercel / Supabase / Clerk / Stripe projects.
 
 1. **Supabase:** new project. SQL editor: create `pa_app` from `infrastructure/supabase/bootstrap.sql` (change the password). Use **direct** or **session** pooler URLs, not transaction pooler if you hit RLS/session issues.
-2. **Railway API:** leave Root Directory **empty** (repo root). Env from `.env.staging`. `DATABASE_ADMIN_URL` is the postgres role (migrations + webhooks). `DATABASE_URL` is `pa_app`. First deploy runs `alembic upgrade head`. If a previous service used Root Directory `backend` plus Dockerfile `backend/Dockerfile` with a repo-root context, the image build fails on missing `pyproject.toml` — clear Root Directory and use the root `Dockerfile`.
+2. **Railway API:** leave Root Directory **empty**. Start command `python start_api.py`. Env from `.env.staging`. `DATABASE_ADMIN_URL` is the postgres role. `DATABASE_URL` is `pa_app`.
 3. **Re-run GRANTs** in the bootstrap file after the first successful migrate.
 4. **Railway Redis** plugin. Copy `REDIS_URL` to API and worker.
 5. **Railway worker:** Dockerfile `Dockerfile.worker`. Start command **must** be `python -m arq app.workers.arq_worker.WorkerSettings` — not the API `alembic`/`uvicorn` command. Same `REDIS_URL` and `DATABASE_ADMIN_URL`. No Gmail env.

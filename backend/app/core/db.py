@@ -23,11 +23,11 @@ _AdminSession: async_sessionmaker[AsyncSession] | None = None
 
 
 def _make_engine(url: str) -> AsyncEngine:
-    kwargs: dict = {"pool_pre_ping": True}
+    kwargs: dict = {"pool_pre_ping": True, "pool_timeout": 15}
     if url.startswith("sqlite"):
         kwargs["connect_args"] = {"check_same_thread": False}
     elif needs_ssl(url):
-        kwargs["connect_args"] = {"ssl": True}
+        kwargs["connect_args"] = {"ssl": True, "timeout": 15}
     return create_async_engine(url, **kwargs)
 
 
