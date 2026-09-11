@@ -7,7 +7,7 @@ ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app:/app/src
 ENV PIP_DISABLE_PIP_VERSION_CHECK=1
 
-COPY pyproject.toml README.md requirements.txt alembic.ini ./
+COPY pyproject.toml README.md requirements.txt alembic.ini main.py ./
 COPY src ./src
 COPY app ./app
 COPY alembic ./alembic
