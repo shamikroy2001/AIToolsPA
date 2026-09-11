@@ -7,8 +7,8 @@ export default function BillingPage() {
       <div>
         <h1 className="text-3xl font-semibold tracking-tight">Billing</h1>
         <ComingIn release="D1">
-          Sign in with Clerk to start a Stripe Checkout session. Credits are granted only after
-          Stripe confirms the subscription — not when this page says success.
+          Sign in with Clerk to see your plan and credits. Stripe checkout is disconnected until
+          billing is re-enabled.
         </ComingIn>
         <ComingIn release="D2">Buy additional credits (top-up packs).</ComingIn>
       </div>

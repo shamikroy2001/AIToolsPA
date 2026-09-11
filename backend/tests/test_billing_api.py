@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 
 from fastapi.testclient import TestClient
 
+from app.core.settings import clear_settings_cache
 from conftest import TOKEN_A, TOKEN_B
 
 
@@ -130,3 +131,20 @@ def test_portal_requires_customer(saas_client: TestClient):
     saas_client.get("/api/me", headers=_auth())
     response = saas_client.post("/api/billing/portal", headers=_auth())
     assert response.status_code == 400
+
+
+def test_stripe_dormant_blocks_checkout_and_webhooks(saas_client: TestClient, monkeypatch):
+    monkeypatch.setenv("STRIPE_ENABLED", "false")
+    clear_settings_cache()
+    saas_client.get("/api/me", headers=_auth())
+    checkout = saas_client.post("/api/billing/checkout", json={"plan": "pro"}, headers=_auth())
+    assert checkout.status_code == 503
+    assert "paused" in checkout.json()["detail"].lower()
+    webhook = saas_client.post("/api/webhooks/stripe", json={"id": "evt_ignored"})
+    assert webhook.status_code == 503
+    billing = saas_client.get("/api/billing", headers=_auth()).json()
+    assert billing["stripe_enabled"] is False
+    health = saas_client.get("/health").json()
+    assert health["billing"] == "dormant"
+    monkeypatch.delenv("STRIPE_ENABLED", raising=False)
+    clear_settings_cache()

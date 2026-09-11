@@ -33,6 +33,7 @@ class Settings(BaseSettings):
     clerk_issuer: str | None = None
     clerk_jwks_url: str | None = None
 
+    stripe_enabled: bool = Field(default=True)
     stripe_secret_key: str | None = None
     stripe_webhook_secret: str | None = None
     stripe_basic_price_id: str | None = None

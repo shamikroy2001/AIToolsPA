@@ -13,6 +13,7 @@ async def health() -> dict[str, str]:
         "service": "personal-assistant-api",
         "environment": settings.environment,
         "release": "D1-staging",
+        "billing": "dormant" if not settings.stripe_enabled else "stripe",
     }
 
 

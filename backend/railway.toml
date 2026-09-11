@@ -1,7 +1,5 @@
-# Railway API service. In the Railway UI set Root Directory to `backend`.
-# Create a second service from the same image with start command:
-#   arq app.workers.arq_worker.WorkerSettings
-# Do not run alembic on the worker. Attach Redis and set REDIS_URL on both.
+# Used only if the Railway service Root Directory is set to `backend`.
+# Prefer the repo-root Dockerfile + railway.toml (leave Root Directory empty).
 
 [build]
 builder = "DOCKERFILE"

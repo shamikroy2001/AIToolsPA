@@ -1,6 +1,7 @@
 # Environment
 .env
 .env.local
+.env.staging
 .env*.local
 !.env.example
 !.env.staging.example

@@ -1,10 +1,8 @@
-# Railway — API service (copy of backend/railway.toml for repo docs).
-# In the dashboard set Root Directory to `backend` so this file is not required.
-# Worker: same Dockerfile, start command `arq app.workers.arq_worker.WorkerSettings`.
+# Prefer repo-root Dockerfile. This file is leftover if Root Directory was set to backend/.
 
 [build]
 builder = "DOCKERFILE"
-dockerfilePath = "backend/Dockerfile"
+dockerfilePath = "Dockerfile"
 
 [deploy]
 healthcheckPath = "/health"

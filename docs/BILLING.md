@@ -1,6 +1,8 @@
 # Billing
 
-Stripe is the source of subscription truth. The frontend never grants entitlements.
+Stripe is the source of subscription truth when `STRIPE_ENABLED=true`. The frontend never grants entitlements.
+
+**Current staging: Stripe is dormant.** Checkout, Customer Portal, and webhooks return 503. Gateway and ledger code stay in the repo. Re-enable by setting `STRIPE_ENABLED=true` plus test-mode keys and Price IDs.
 
 ## D1
 

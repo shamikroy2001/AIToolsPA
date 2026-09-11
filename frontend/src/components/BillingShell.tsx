@@ -13,6 +13,7 @@ type Billing = {
   currency: string | null;
   monthly_credits: number;
   rollover_cap: number;
+  stripe_enabled: boolean;
   credits: {
     available: number;
     used_this_period: number;
@@ -139,6 +140,13 @@ export function BillingShell() {
       ) : (
         <p className="text-sm text-slate-600">Loading plan…</p>
       )}
+      {billing && !billing.stripe_enabled ? (
+        <p className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+          Paid checkout is paused. Stripe is disconnected for this environment. Plan amounts and
+          credit balances still show; subscriptions are not charged.
+        </p>
+      ) : null}
+      {billing && billing.stripe_enabled ? (
       <div className="flex flex-wrap gap-2">
         <button
           type="button"
@@ -165,6 +173,7 @@ export function BillingShell() {
           Manage billing
         </button>
       </div>
+      ) : null}
       <ComingIn release="D2">Buy additional credits (top-up packs).</ComingIn>
     </div>
   );

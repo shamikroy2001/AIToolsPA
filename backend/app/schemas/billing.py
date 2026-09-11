@@ -55,3 +55,4 @@ class BillingSummary(BaseModel):
     monthly_credits: int
     rollover_cap: int
     credits: CreditsSummary
+    stripe_enabled: bool = True

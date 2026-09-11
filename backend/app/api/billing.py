@@ -18,7 +18,7 @@ from app.schemas.billing import (
 )
 from app.services.credits import CreditService
 from app.services.plans import PlanService
-from app.services.stripe_gateway import get_stripe_gateway
+from app.services.stripe_gateway import get_stripe_gateway, require_stripe_connected
 from sqlalchemy import select
 
 from app.models.credit import CreditTransaction
@@ -98,6 +98,7 @@ async def get_billing(
         monthly_credits=0 if plan is None else plan.monthly_credits,
         rollover_cap=0 if plan is None else plan.rollover_cap,
         credits=summary,
+        stripe_enabled=get_settings().stripe_enabled,
     )
 
 
@@ -113,6 +114,7 @@ async def create_checkout(
         plan = await PlanService(session).get_by_slug(body.plan)
         if plan is None or not plan.enabled:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown plan")
+        require_stripe_connected()
         price_id = PlanService(session).price_id_for(plan.slug, settings)
         if not price_id:
             raise HTTPException(
@@ -135,6 +137,7 @@ async def create_checkout(
 
 @router.post("/billing/portal", response_model=PortalResponse)
 async def create_portal(user: Annotated[User, Depends(get_current_user)]) -> PortalResponse:
+    require_stripe_connected()
     settings = get_settings()
     factory = admin_session_factory()
     async with factory() as session:

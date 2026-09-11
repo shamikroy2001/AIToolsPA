@@ -134,6 +134,15 @@ class FakeStripeGateway:
         return json.loads(payload.decode("utf-8"))
 
 
+def require_stripe_connected() -> None:
+    """Stripe code stays in-tree; staging can leave it dormant via STRIPE_ENABLED=false."""
+    if not get_settings().stripe_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Billing is paused. Stripe is disconnected for this environment.",
+        )
+
+
 _gateway: StripeGateway | None = None
 
 

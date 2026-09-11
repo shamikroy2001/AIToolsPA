@@ -1,0 +1,13 @@
+.git
+.github
+frontend
+docs
+infrastructure
+**/__pycache__
+**/.pytest_cache
+**/*.egg-info
+backend/.venv
+**/.env
+**/.env.staging
+frontend/.next
+frontend/node_modules
