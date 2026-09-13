@@ -1,6 +1,7 @@
--- D1 staging: run in the Supabase SQL editor as the postgres role.
+-- Staging: run in the Supabase SQL editor as the postgres role.
 -- 1) Create the RLS-bound app role (set a strong password; store it in Railway DATABASE_URL).
--- 2) After `alembic upgrade head` (API boot does this), run the GRANT block.
+-- 2) After the API has created tables, run this file again so GRANTs apply.
+-- D2 tables are granted only if they exist.
 
 DO $$
 BEGIN
@@ -13,15 +14,33 @@ $$;
 GRANT CONNECT ON DATABASE postgres TO pa_app;
 GRANT USAGE ON SCHEMA public TO pa_app;
 
--- Re-run after migrations so GRANTs are not skipped when pa_app was created late.
-GRANT SELECT, UPDATE ON TABLE users TO pa_app;
-GRANT SELECT ON TABLE plans, task_costs TO pa_app;
-GRANT SELECT, INSERT, UPDATE ON TABLE
-  subscriptions,
-  credit_accounts,
-  credit_lots,
-  credit_transactions,
-  assistant_profiles,
-  assistant_tasks,
-  ai_usage
-TO pa_app;
+DO $$
+DECLARE
+  t text;
+  privileges text;
+BEGIN
+  FOR t, privileges IN
+    SELECT * FROM (VALUES
+      ('users', 'SELECT, UPDATE'),
+      ('plans', 'SELECT'),
+      ('task_costs', 'SELECT'),
+      ('subscriptions', 'SELECT, INSERT, UPDATE'),
+      ('credit_accounts', 'SELECT, INSERT, UPDATE'),
+      ('credit_lots', 'SELECT, INSERT, UPDATE'),
+      ('credit_transactions', 'SELECT, INSERT, UPDATE'),
+      ('assistant_profiles', 'SELECT, INSERT, UPDATE'),
+      ('assistant_tasks', 'SELECT, INSERT, UPDATE'),
+      ('ai_usage', 'SELECT, INSERT, UPDATE'),
+      ('stripe_events', 'SELECT, INSERT, UPDATE'),
+      ('integrations', 'SELECT, INSERT, UPDATE, DELETE'),
+      ('monitored_websites', 'SELECT, INSERT, UPDATE, DELETE'),
+      ('scheduled_tasks', 'SELECT, INSERT, UPDATE, DELETE'),
+      ('notifications', 'SELECT, INSERT, UPDATE, DELETE')
+    ) AS grants(table_name, privs)
+  LOOP
+    IF to_regclass('public.' || t) IS NOT NULL THEN
+      EXECUTE format('GRANT %s ON TABLE %I TO pa_app', privileges, t);
+    END IF;
+  END LOOP;
+END
+$$;
