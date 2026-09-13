@@ -16,8 +16,56 @@ class TokenVerifier(Protocol):
     def verify(self, token: str) -> ClerkPrincipal: ...
 
 
+def email_from_clerk_claims(payload: dict) -> str:
+    """Clerk's default session JWT has `sub` but usually no email."""
+    for key in ("email", "primary_email", "primary_email_address"):
+        value = payload.get(key)
+        if isinstance(value, str) and "@" in value:
+            return value
+    user = payload.get("user")
+    if isinstance(user, dict):
+        for key in ("email", "primary_email_address"):
+            value = user.get(key)
+            if isinstance(value, str) and "@" in value:
+                return value
+    return ""
+
+
+def email_from_clerk_api(secret_key: str | None, clerk_user_id: str) -> str:
+    if not secret_key or not clerk_user_id:
+        return ""
+    try:
+        import httpx
+
+        response = httpx.get(
+            f"https://api.clerk.com/v1/users/{clerk_user_id}",
+            headers={"Authorization": f"Bearer {secret_key}"},
+            timeout=10.0,
+        )
+        response.raise_for_status()
+        data = response.json()
+    except Exception:
+        return ""
+    rows = data.get("email_addresses") if isinstance(data, dict) else None
+    if not isinstance(rows, list):
+        return ""
+    primary_id = data.get("primary_email_address_id")
+    for row in rows:
+        if isinstance(row, dict) and row.get("id") == primary_id:
+            email = row.get("email_address")
+            if isinstance(email, str) and "@" in email:
+                return email
+    for row in rows:
+        if isinstance(row, dict):
+            email = row.get("email_address")
+            if isinstance(email, str) and "@" in email:
+                return email
+    return ""
+
+
 class ClerkTokenVerifier:
     def __init__(self, settings: Settings) -> None:
+        self._settings = settings
         self._issuer = settings.clerk_issuer
         self._jwks = (
             PyJWKClient(settings.clerk_jwks_url)
@@ -52,9 +100,9 @@ class ClerkTokenVerifier:
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Not authenticated",
             )
-        email = payload.get("email") or payload.get("primary_email") or ""
-        if not isinstance(email, str):
-            email = ""
+        email = email_from_clerk_claims(payload) or email_from_clerk_api(
+            self._settings.clerk_secret_key, clerk_user_id
+        )
         return ClerkPrincipal(clerk_user_id=clerk_user_id, email=email)
 
 
