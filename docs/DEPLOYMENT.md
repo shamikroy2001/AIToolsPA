@@ -25,7 +25,17 @@ Supabase URLs may be pasted as `postgres://...`; the API rewrites them to `postg
 
 ## D2 staging
 
-Slice 2 (catalog / monitors / schedules / notifications) deploys with existing env. Do not add Google OAuth or Telegram secrets until the OAuth slice. `/health` stays `D1-staging` until those APIs are proven.
+Slice 2 (catalog / monitors / schedules / notifications) deploys with existing env. Slice 3 adds real Arq monitor polling. Do not add Google OAuth or Telegram secrets until the OAuth slice. `/health` stays `D1-staging` until the operator accepts a D2 release label.
+
+**Railway worker (required for Slice 3 polling):** the `dazzling-transformation` project currently has the API service only. Add a worker service when you want checks to run in staging:
+
+1. New Railway service, **Root Directory empty**.
+2. Dockerfile path: `Dockerfile.worker`.
+3. Start command: `python -m arq app.workers.arq_worker.WorkerSettings` (also in `railway.worker.toml`).
+4. Env: `REDIS_URL` (same as API), `DATABASE_ADMIN_URL` (postgres/service role), `DATABASE_URL` (`pa_app` is fine if present). Do **not** run Alembic here.
+5. No `GMAIL_*` or `TELEGRAM_*` variables.
+
+Cron on the worker: `expire_credit_lots` daily at 03:15 UTC; `poll_due_monitors` at minute 0/15/30/45.
 
 Same hosts. Later slices add Google OAuth redirect URLs, Telegram bot token, worker concurrency, admin allowlist. Then production cutover after acceptance.
 

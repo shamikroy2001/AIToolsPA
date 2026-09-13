@@ -7,4 +7,5 @@ def test_worker_registers_ping():
     assert poll_due_monitors in WorkerSettings.functions
     assert WorkerSettings.redis_settings is not None
     cron_fns = [job.coroutine for job in WorkerSettings.cron_jobs]
+    assert expire_credit_lots in cron_fns
     assert poll_due_monitors in cron_fns

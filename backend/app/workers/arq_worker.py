@@ -1,4 +1,4 @@
-"""Arq worker. D1-staging: ping + expire credit lots + no-op monitor poll."""
+"""Arq worker. Credit lot expiry + website monitor hash-check. No OAuth secrets."""
 
 from arq.connections import RedisSettings
 from arq import cron
@@ -6,6 +6,7 @@ from arq import cron
 from app.core.db import admin_session_factory, init_engines_from_settings
 from app.core.settings import get_settings
 from app.services.credits import CreditService
+from app.services.monitor_poll import run_poll_cycle
 
 
 async def ping(ctx: dict) -> str:
@@ -22,8 +23,12 @@ async def expire_credit_lots(ctx: dict) -> int:
 
 
 async def poll_due_monitors(ctx: dict) -> int:
-    """No-op cron so Arq is proven. Real hash-check polling is a later slice."""
-    return 0
+    """Hash-check due website monitors and bump OAuth-free schedules.
+
+    Optional ``ctx['fetch']`` is a test hook. Production uses HTTP GET.
+    """
+    fetch = ctx.get("fetch") if ctx else None
+    return await run_poll_cycle(fetch=fetch)
 
 
 class WorkerSettings:

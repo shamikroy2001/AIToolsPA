@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
 from fastapi.testclient import TestClient
 
 from app.core.db import admin_session_factory
 from app.core.settings import clear_settings_cache
-from app.models.automation import Notification
+from app.models.automation import MonitoredWebsite, Notification
+from app.models.credit import SOURCE_MONTHLY, CreditLot
+from app.services.monitor_poll import content_hash
 from app.workers.arq_worker import poll_due_monitors
 from conftest import TOKEN_A, TOKEN_B
 
@@ -238,5 +241,68 @@ def test_notifications_are_tenant_scoped(saas_client: TestClient):
     _assert_no_secrets(listed_a)
 
 
-def test_poll_due_monitors_is_noop_without_secrets():
+def test_poll_due_monitors_does_not_require_oauth_env(saas_client: TestClient):
+    saas_client.get("/api/me", headers=_auth())
     assert asyncio.run(poll_due_monitors({})) == 0
+
+
+def test_poll_due_monitors_hash_change_notifies_and_charges(saas_client: TestClient):
+    me = saas_client.get("/api/me", headers=_auth()).json()
+    created = saas_client.post(
+        "/api/monitors",
+        json={"url": "https://example.com/status"},
+        headers=_auth(),
+    ).json()
+    hello = b"<html>hello</html>"
+    world = b"<html>world</html>"
+
+    async def _seed() -> None:
+        factory = admin_session_factory()
+        async with factory() as session:
+            row = await session.get(MonitoredWebsite, UUID(created["id"]))
+            assert row is not None
+            row.last_hash = content_hash(hello)
+            session.add(
+                CreditLot(
+                    user_id=UUID(me["id"]),
+                    source=SOURCE_MONTHLY,
+                    original_amount=30,
+                    remaining_amount=30,
+                    billing_period="2026-09",
+                    expires_at=None,
+                )
+            )
+            await session.commit()
+
+    asyncio.run(_seed())
+
+    async def fetch(url: str) -> bytes:
+        assert url == "https://example.com/status"
+        return world
+
+    assert asyncio.run(poll_due_monitors({"fetch": fetch})) == 1
+    notices = saas_client.get("/api/notifications", headers=_auth()).json()
+    assert len(notices) == 1
+    assert notices[0]["channel"] == "in_app"
+    _assert_no_secrets(notices)
+    credits = saas_client.get("/api/credits", headers=_auth()).json()
+    assert credits["available"] == 27
+
+    async def _mark_due_again() -> None:
+        factory = admin_session_factory()
+        async with factory() as session:
+            row = await session.get(MonitoredWebsite, UUID(created["id"]))
+            assert row is not None
+            row.last_checked_at = datetime.now(timezone.utc) - timedelta(minutes=20)
+            await session.commit()
+
+    asyncio.run(_mark_due_again())
+
+    async def fetch_same(url: str) -> bytes:
+        del url
+        return world
+
+    assert asyncio.run(poll_due_monitors({"fetch": fetch_same})) == 1
+    assert len(saas_client.get("/api/notifications", headers=_auth()).json()) == 1
+    credits = saas_client.get("/api/credits", headers=_auth()).json()
+    assert credits["available"] == 24
