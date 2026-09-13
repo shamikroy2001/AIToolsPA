@@ -6,6 +6,7 @@ import logging
 import os
 import sys
 import threading
+from pathlib import Path
 
 logging.basicConfig(
     level=os.environ.get("LOG_LEVEL", "INFO"),
@@ -14,6 +15,7 @@ logging.basicConfig(
 log = logging.getLogger("start_api")
 
 MIGRATE_WAIT_SECONDS = 20
+_ALEMBIC_INI = Path(__file__).resolve().parent / "alembic.ini"
 
 
 def listen_port() -> int:
@@ -30,7 +32,13 @@ def run_migrations() -> None:
         from alembic import command
         from alembic.config import Config
 
-        cfg = Config("alembic.ini")
+        from app.core.dsn import describe_database_url
+        from app.core.settings import get_settings
+
+        settings = get_settings()
+        admin_url = settings.database_admin_url or settings.database_url
+        log.info("Alembic upgrade head starting (%s)", describe_database_url(admin_url))
+        cfg = Config(str(_ALEMBIC_INI))
         command.upgrade(cfg, "head")
         log.info("Alembic upgrade head completed")
     except Exception:

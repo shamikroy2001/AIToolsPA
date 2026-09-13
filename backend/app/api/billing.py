@@ -16,6 +16,7 @@ from app.schemas.billing import (
     PlanPublic,
     PortalResponse,
 )
+from app.core.plan_catalog import DEFAULT_PLANS
 from app.services.credits import CreditService
 from app.services.plans import PlanService
 from app.services.stripe_gateway import get_stripe_gateway, require_stripe_connected
@@ -27,14 +28,33 @@ from app.models.subscription import Subscription
 router = APIRouter(prefix="/api", tags=["billing"])
 
 
+def _catalog_fallback() -> list[PlanPublic]:
+    return [
+        PlanPublic(
+            slug=row["slug"],
+            display_name=row["display_name"],
+            monthly_credits=row["monthly_credits"],
+            rollover_cap=row["rollover_cap"],
+            amount_cents=row["amount_cents"],
+            currency=row["currency"],
+        )
+        for row in DEFAULT_PLANS
+    ]
+
+
 @router.get("/plans", response_model=list[PlanPublic])
 async def list_plans() -> list[PlanPublic]:
-    factory = admin_session_factory()
-    async with factory() as session:
-        await PlanService(session).ensure_defaults()
-        await session.commit()
-        plans = await PlanService(session).list_enabled()
-        return [PlanPublic.model_validate(p) for p in plans]
+    try:
+        factory = admin_session_factory()
+        async with factory() as session:
+            await PlanService(session).ensure_defaults()
+            await session.commit()
+            plans = await PlanService(session).list_enabled()
+            if plans:
+                return [PlanPublic.model_validate(p) for p in plans]
+    except Exception:
+        pass
+    return _catalog_fallback()
 
 
 @router.get("/credits", response_model=CreditsSummary)

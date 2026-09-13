@@ -3,7 +3,7 @@ from logging.config import fileConfig
 from alembic import context
 from sqlalchemy import create_engine, pool
 
-from app.core.dsn import to_sync_psycopg, with_required_ssl
+from app.core.dsn import sync_connect_args, to_sync_psycopg, with_required_ssl
 from app.core.settings import get_settings
 from app.models.base import Base
 from app.models import assistant as _assistant  # noqa: F401
@@ -12,6 +12,11 @@ from app.models import plan as _plan  # noqa: F401
 from app.models import stripe_event as _stripe_event  # noqa: F401
 from app.models import subscription as _subscription  # noqa: F401
 from app.models import user as _user  # noqa: F401
+
+try:
+    from app.models import automation as _automation  # noqa: F401
+except ImportError:
+    pass
 
 config = context.config
 if config.config_file_name is not None:
@@ -42,7 +47,7 @@ def run_migrations_online() -> None:
     connectable = create_engine(
         url,
         poolclass=pool.NullPool,
-        connect_args={"connect_timeout": 15, "sslmode": "require"},
+        connect_args=sync_connect_args(url),
     )
     with connectable.connect() as connection:
         context.configure(connection=connection, target_metadata=target_metadata)

@@ -22,18 +22,27 @@ log = logging.getLogger("app.main")
 
 
 async def seed_plan_catalog() -> None:
-    try:
-        factory = admin_session_factory()
-        async with factory() as session:
-            await PlanService(session).ensure_defaults()
-            await session.commit()
-    except Exception:
-        log.exception("Plan seed failed; serving /health without catalog seed")
+    last_error: Exception | None = None
+    for attempt in range(12):
+        try:
+            factory = admin_session_factory()
+            async with factory() as session:
+                await PlanService(session).ensure_defaults()
+                await session.commit()
+            return
+        except Exception as exc:
+            last_error = exc
+            log.warning("Plan seed attempt %s failed; retrying", attempt + 1)
+            await asyncio.sleep(2)
+    log.exception("Plan seed failed; serving /health without catalog seed", exc_info=last_error)
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    init_engines_from_settings()
+    try:
+        init_engines_from_settings()
+    except Exception:
+        log.exception("Database engine init failed; serving /health")
     settings = get_settings()
     engine = get_app_engine()
     seed_task: asyncio.Task | None = None

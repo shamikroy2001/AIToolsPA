@@ -9,6 +9,7 @@ from app.core.dsn import (
     needs_ssl,
     parse_cors_origins,
     sanitize_database_url,
+    sync_connect_args,
     to_async_sqlalchemy,
     to_sync_psycopg,
     with_required_ssl,
@@ -78,6 +79,19 @@ def test_supabase_hosts_use_require_ssl():
     )
     assert pooler["ssl"] == "require"
     assert direct["ssl"] == "require"
+
+
+def test_alembic_sync_args_skip_cert_verify():
+    import ssl
+
+    args = sync_connect_args(
+        "postgresql+psycopg://postgres.proj:x@aws-0-ca-central-1.pooler.supabase.com:5432/postgres"
+    )
+    assert args["connect_timeout"] == 15
+    assert "sslmode" not in args
+    ctx = args["ssl"]
+    assert isinstance(ctx, ssl.SSLContext)
+    assert ctx.verify_mode == ssl.CERT_NONE
 
 
 def test_password_at_sign_is_encoded_for_sqlalchemy():
