@@ -1,10 +1,14 @@
 """D1 staging freeze helpers. No live cloud calls."""
 
+from sqlalchemy.engine.url import make_url
+
 from app.core.db import engine_connect_args
 from app.core.dsn import (
     cors_allowlist,
+    describe_database_url,
     needs_ssl,
     parse_cors_origins,
+    sanitize_database_url,
     to_async_sqlalchemy,
     to_sync_psycopg,
     with_required_ssl,
@@ -62,7 +66,54 @@ def test_remote_engine_always_sets_connect_timeout():
     )
     assert args["timeout"] == 15
     assert args["command_timeout"] == 15
-    assert args["ssl"] is True
+    assert args["ssl"] is not False
+
+
+def test_supabase_pooler_skips_cert_verify():
+    import ssl
+
+    args = engine_connect_args(
+        "postgresql+asyncpg://postgres.proj:x@aws-0-ca-central-1.pooler.supabase.com:5432/postgres"
+    )
+    ctx = args["ssl"]
+    assert isinstance(ctx, ssl.SSLContext)
+    assert ctx.verify_mode == ssl.CERT_NONE
+
+
+def test_password_at_sign_is_encoded_for_sqlalchemy():
+    raw = (
+        "postgresql+asyncpg://postgres.projref:Secret@Pass"
+        "@aws-0-ca-central-1.pooler.supabase.com:5432/postgres"
+    )
+    out = to_async_sqlalchemy(raw)
+    parsed = make_url(out)
+    assert parsed.password == "Secret@Pass"
+    assert parsed.host == "aws-0-ca-central-1.pooler.supabase.com"
+    assert parsed.username == "postgres.projref"
+
+
+def test_already_encoded_password_is_not_double_encoded():
+    raw = (
+        "postgresql+asyncpg://pa_app.projref:Secret%40Pass"
+        "@aws-0-ca-central-1.pooler.supabase.com:5432/postgres"
+    )
+    out = to_async_sqlalchemy(raw)
+    assert out.count("%40") == 1
+    assert make_url(out).password == "Secret@Pass"
+
+
+def test_describe_database_url_omits_password():
+    summary = describe_database_url(
+        "postgresql+asyncpg://pa_app:super-secret@aws-0-ca-central-1.pooler.supabase.com:5432/postgres"
+    )
+    assert "super-secret" not in summary
+    assert "at_count=1" in summary
+    assert "postgresql+asyncpg" in summary
+
+
+def test_quoted_database_url_is_stripped():
+    raw = '"postgresql://pa_app:x@localhost:5432/postgres"'
+    assert sanitize_database_url(raw).startswith("postgresql://pa_app:")
 
 
 def test_local_engine_sets_timeout_without_ssl():

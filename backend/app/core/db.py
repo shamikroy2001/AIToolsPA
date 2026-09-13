@@ -13,8 +13,12 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
-from app.core.dsn import needs_ssl
+import logging
+
+from app.core.dsn import describe_database_url, needs_ssl, postgres_ssl_setting, to_async_sqlalchemy
 from app.core.settings import Settings, get_settings
+
+log = logging.getLogger("app.db")
 
 _app_engine: AsyncEngine | None = None
 _admin_engine: AsyncEngine | None = None
@@ -27,17 +31,22 @@ def engine_connect_args(url: str) -> dict:
         return {"check_same_thread": False}
     args: dict = {"timeout": 15, "command_timeout": 15}
     if needs_ssl(url):
-        args["ssl"] = True
+        args["ssl"] = postgres_ssl_setting(url)
     return args
 
 
 def _make_engine(url: str) -> AsyncEngine:
-    return create_async_engine(
-        url,
-        pool_pre_ping=True,
-        pool_timeout=15,
-        connect_args=engine_connect_args(url),
-    )
+    cleaned = to_async_sqlalchemy(url)
+    try:
+        return create_async_engine(
+            cleaned,
+            pool_pre_ping=True,
+            pool_timeout=15,
+            connect_args=engine_connect_args(cleaned),
+        )
+    except Exception:
+        log.error("Invalid database URL (%s)", describe_database_url(url))
+        raise
 
 
 def configure_engines(

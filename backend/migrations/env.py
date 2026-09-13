@@ -42,7 +42,7 @@ def run_migrations_online() -> None:
     connectable = create_engine(
         url,
         poolclass=pool.NullPool,
-        connect_args={"connect_timeout": 15},
+        connect_args={"connect_timeout": 15, "sslmode": "require"},
     )
     with connectable.connect() as connection:
         context.configure(connection=connection, target_metadata=target_metadata)
