@@ -2,12 +2,47 @@
 
 from __future__ import annotations
 
+import logging
 import time
 
 import httpx
 
 from app.ai.types import GenerateRequest, GenerateResult
 from app.core.settings import Settings
+
+log = logging.getLogger("app.ai.gateway")
+
+
+def _choice_text(choice: object) -> str:
+    if not isinstance(choice, dict):
+        return ""
+    message = choice.get("message") or {}
+    if not isinstance(message, dict):
+        return ""
+    content = message.get("content")
+    if isinstance(content, str):
+        return content.strip()
+    if isinstance(content, list):
+        parts: list[str] = []
+        for item in content:
+            if isinstance(item, str):
+                parts.append(item)
+            elif isinstance(item, dict):
+                text = item.get("text") or item.get("content")
+                if isinstance(text, str):
+                    parts.append(text)
+        return "".join(parts).strip()
+    return ""
+
+
+def _usage_tokens(usage: object, key: str) -> int:
+    if not isinstance(usage, dict):
+        return 0
+    value = usage.get(key)
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
 
 
 class GatewayAIProvider:
@@ -53,22 +88,30 @@ class GatewayAIProvider:
                     response = await client.post(url, headers=headers, json=payload)
                 latency = int((time.perf_counter() - started) * 1000)
                 if response.status_code >= 400:
+                    log.warning("AI gateway HTTP %s", response.status_code)
                     last_error = "Assistant unavailable"
                     continue
                 body = response.json()
-                choice = (body.get("choices") or [{}])[0]
-                text = ((choice.get("message") or {}).get("content")) or ""
+                if not isinstance(body, dict):
+                    last_error = "Assistant unavailable"
+                    continue
+                choice = (body.get("choices") or [None])[0]
+                if not isinstance(choice, dict):
+                    last_error = "Assistant unavailable"
+                    continue
+                text = _choice_text(choice)
                 usage = body.get("usage") or {}
                 return GenerateResult(
-                    text=text.strip(),
-                    input_tokens=int(usage.get("prompt_tokens") or 0),
-                    output_tokens=int(usage.get("completion_tokens") or 0),
+                    text=text,
+                    input_tokens=_usage_tokens(usage, "prompt_tokens"),
+                    output_tokens=_usage_tokens(usage, "completion_tokens"),
                     latency_ms=latency,
                     success=True,
                     provider="gateway",
                     model=model,
                 )
-            except (httpx.HTTPError, ValueError, KeyError):
+            except Exception:
+                log.exception("AI gateway request failed")
                 last_error = "Assistant unavailable"
         latency = int((time.perf_counter() - started) * 1000)
         return GenerateResult(

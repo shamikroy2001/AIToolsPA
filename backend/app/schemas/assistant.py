@@ -13,6 +13,16 @@ class AssistantProfilePublic(BaseModel):
     timezone: str
     language: str
 
+    @classmethod
+    def defaults(cls) -> "AssistantProfilePublic":
+        return cls(
+            assistant_name="Assistant",
+            personality="Helpful and concise",
+            response_style="clear",
+            timezone="UTC",
+            language="en",
+        )
+
 
 class AssistantProfileUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")

@@ -3,8 +3,9 @@ from uuid import UUID, uuid4
 
 from sqlalchemy import ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.types import DateTime
 
-from app.models.base import Base, utc_now
+from app.models.base import Base, aware_timestamp
 
 
 class AssistantProfile(Base):
@@ -16,10 +17,10 @@ class AssistantProfile(Base):
     assistant_name: Mapped[str] = mapped_column(String(80), default="Assistant")
     personality: Mapped[str] = mapped_column(String(255), default="Helpful and concise")
     response_style: Mapped[str] = mapped_column(String(64), default="clear")
-    timezone: Mapped[str] = mapped_column(String(64), default="UTC")
+    timezone: Mapped[str] = mapped_column("timezone", String(64), default="UTC", quote=True)
     language: Mapped[str] = mapped_column(String(32), default="en")
-    created_at: Mapped[datetime] = mapped_column(default=utc_now)
-    updated_at: Mapped[datetime] = mapped_column(default=utc_now, onupdate=utc_now)
+    created_at: Mapped[datetime] = aware_timestamp()
+    updated_at: Mapped[datetime] = aware_timestamp(onupdate=True)
 
 
 class TaskCost(Base):
@@ -45,8 +46,8 @@ class AssistantTask(Base):
     output_data: Mapped[str] = mapped_column(Text, default="{}")
     credits_reserved: Mapped[int] = mapped_column(Integer, default=0)
     credits_charged: Mapped[int] = mapped_column(Integer, default=0)
-    created_at: Mapped[datetime] = mapped_column(default=utc_now)
-    completed_at: Mapped[datetime | None] = mapped_column(default=None)
+    created_at: Mapped[datetime] = aware_timestamp()
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
 
 
 class AIUsage(Base):
@@ -63,4 +64,4 @@ class AIUsage(Base):
     credits_charged: Mapped[int] = mapped_column(Integer, default=0)
     latency_ms: Mapped[int] = mapped_column(Integer, default=0)
     success: Mapped[bool] = mapped_column(default=False)
-    created_at: Mapped[datetime] = mapped_column(default=utc_now)
+    created_at: Mapped[datetime] = aware_timestamp()

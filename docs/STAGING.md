@@ -53,6 +53,47 @@ This repo cannot create your Railway / Vercel / Supabase / Clerk / Stripe projec
 9. **AI Gateway:** key and route model IDs on Railway only.
 10. Confirm CORS: `PUBLIC_APP_URL` and `CORS_ORIGINS` equal the Vercel origin.
 
+### GET/PATCH /api/me/assistant and POST /api/tasks 500 while D2 GETs work
+
+Confirmed on live Railway HTTP logs (staging still on `main` `60a3905`), not only the older `task_costs` INSERT theory. Operator disabled RLS on `task_costs` and seeded `assistant_ask`; ask still 500s.
+
+| Route | Live result |
+| --- | --- |
+| `GET /api/me`, `/api/credits`, `/api/plans`, `/api/monitors`, `/api/integrations` | 200 |
+| `GET /api/me/assistant` | 500 (~350–500ms) |
+| `PATCH /api/me/assistant` | 500 |
+| `POST /api/tasks` | 500 (same latency; no debit) |
+
+On `main`, GET/PATCH/ask all call `get_or_create_profile`, which **INSERTs `assistant_profiles` as `pa_app`**. That handler never touches `task_costs` or the AI gateway. Two write failures:
+
+1. **Schema vs model.** Alembic `0003` created `created_at` / `updated_at` as `timestamptz`. The ORM used naive `DateTime` + aware `utc_now()` — the same asyncpg bind error that previously broke `users` / `plans`. The model now uses `DateTime(timezone=True)`. The `timezone` column is quoted.
+2. **RLS / GRANT.** `ENABLE` + `FORCE ROW LEVEL SECURITY` without `{table}_tenant` denies tenant INSERT. Admin upserts now set `app.user_id`.
+
+`GET /api/me/assistant` is now **read-only** (defaults if the row is missing or unreadable). PATCH/ask persist via admin + `app.user_id` and return in-memory values if persist is denied. Ask does not call `get_or_create_profile`.
+
+Optional paste: `infrastructure/supabase/assistant_rls.sql` (or Alembic `0006_assistant_profile_rls`). Clerk session JWTs from this app expire in ~60 seconds — mint a fresh token immediately before a live curl.
+
+### POST /api/tasks 500 while /api/me and /api/credits work
+
+`task_costs` and `plans` are catalog tables (no `user_id`). If RLS is enabled on them without a `SELECT` policy, `pa_app` sees zero cost rows. Older API builds then tried to INSERT `task_costs` (GRANT is SELECT-only) and returned an opaque `text/plain` 500 without CORS.
+
+The API no longer writes `task_costs` on the ask path (defaults to 5 credits). Alembic `0005_catalog_rls` and a re-run of `infrastructure/supabase/bootstrap.sql` add `task_costs_read` / `plans_read`. Optional paste if you cannot wait for migrate:
+
+```sql
+ALTER TABLE task_costs ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS task_costs_read ON task_costs;
+CREATE POLICY task_costs_read ON task_costs FOR SELECT USING (true);
+GRANT SELECT ON TABLE task_costs TO pa_app;
+
+INSERT INTO task_costs (id, task_type, base_credit_cost, minimum_cost, maximum_cost, enabled)
+VALUES (gen_random_uuid(), 'assistant_ask', 5, 1, 20, true)
+ON CONFLICT (task_type) DO UPDATE SET enabled = true, base_credit_cost = 5;
+```
+
+`AI_GATEWAY_API_KEY` and `AI_GATEWAY_BASE_URL` stay on Railway only. Unhandled errors return JSON `{"detail": "..."}` (never Starlette's 21-byte `text/plain` `Internal Server Error`). Tracebacks go to `app.errors` and stderr so Railway deploy logs show them even after Alembic `fileConfig`.
+
+A `POST /api/tasks` 500 with no Python traceback on Railway was caused by Alembic migrate-on-boot calling `logging.config.fileConfig` with `disable_existing_loggers=True` (the default), which silenced `uvicorn.error`. That is now `False`, and `start_api` re-enables app loggers after migrate.
+
 Do not start D2 work until this list is checked off in staging.
 
 ## D2 Slice 2 (APIs; release stays D1-staging)

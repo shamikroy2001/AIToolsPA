@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 import asyncio
 import logging
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 import app.models  # noqa: F401
@@ -15,9 +15,14 @@ from app.api.health import router as health_router
 from app.api.me import router as me_router
 from app.api.webhooks import router as webhook_router
 from app.core.db import admin_session_factory, get_app_engine, init_engines_from_settings
+from app.core.errors import JsonErrorMiddleware, json_error_response, log_unhandled
+from app.core.logging import configure_app_logging
 from app.core.settings import get_settings
 from app.models.base import Base
+from app.services.assistant import seed_task_costs
 from app.services.plans import PlanService
+
+configure_app_logging()
 
 log = logging.getLogger("app.main")
 
@@ -37,6 +42,7 @@ async def seed_plan_catalog() -> None:
             factory = admin_session_factory()
             async with factory() as session:
                 await PlanService(session).ensure_defaults()
+                await seed_task_costs(session)
                 await session.commit()
             return
         except Exception as exc:
@@ -55,6 +61,7 @@ async def seed_plan_catalog() -> None:
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    configure_app_logging()
     try:
         init_engines_from_settings()
     except Exception:
@@ -87,6 +94,8 @@ app = FastAPI(
     redoc_url=None,
 )
 
+# Inner first, CORS last: ServerError → CORS → JsonError → routes.
+app.add_middleware(JsonErrorMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origin_list(),
@@ -94,6 +103,13 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    # Backup if an exception still reaches ServerErrorMiddleware.
+    log_unhandled(request.method, request.url.path, exc)
+    return json_error_response(request)
 
 app.include_router(health_router)
 app.include_router(me_router)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
@@ -24,6 +25,9 @@ from app.models.credit import (
 )
 from app.models.plan import Plan
 from app.models.user import User
+
+
+log = logging.getLogger("app.credits")
 
 
 class InsufficientCredits(Exception):
@@ -99,14 +103,16 @@ class CreditService:
         )
         return max(0, int(total or 0) - int(releases or 0))
 
-    def _spendable_lots_stmt(self, user_id: UUID, now: datetime) -> Select[tuple[CreditLot]]:
+    def _spendable_lots_stmt(
+        self, user_id: UUID, now: datetime, *, for_update: bool = True
+    ) -> Select[tuple[CreditLot]]:
         priority = case(
             (CreditLot.source == SOURCE_ROLLOVER, 0),
             (CreditLot.source == SOURCE_MONTHLY, 1),
             (CreditLot.source == SOURCE_TOPUP, 2),
             else_=3,
         )
-        return (
+        stmt = (
             select(CreditLot)
             .where(
                 CreditLot.user_id == user_id,
@@ -114,8 +120,10 @@ class CreditService:
                 or_(CreditLot.expires_at.is_(None), CreditLot.expires_at > now),
             )
             .order_by(priority, CreditLot.expires_at.is_(None), CreditLot.expires_at, CreditLot.created_at)
-            .with_for_update()
         )
+        if for_update:
+            return stmt.with_for_update()
+        return stmt
 
     async def _add_tx(
         self,
@@ -299,7 +307,17 @@ class CreditService:
         now = now or _utcnow()
         await self.expire_due_lots(user_id, now=now)
         remaining = amount
-        lots = list((await self._session.scalars(self._spendable_lots_stmt(user_id, now))).all())
+        try:
+            lots = list((await self._session.scalars(self._spendable_lots_stmt(user_id, now))).all())
+        except Exception:
+            log.exception("FOR UPDATE on credit_lots failed; retrying without row lock")
+            lots = list(
+                (
+                    await self._session.scalars(
+                        self._spendable_lots_stmt(user_id, now, for_update=False)
+                    )
+                ).all()
+            )
         available = sum(lot.remaining_amount for lot in lots)
         if available < amount:
             raise InsufficientCredits(amount, available)

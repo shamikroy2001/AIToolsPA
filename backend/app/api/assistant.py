@@ -1,14 +1,16 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai import get_ai_provider
-from app.api.deps import get_current_user, get_tenant_db
+from app.api.deps import get_admin_db, get_current_user, get_tenant_db
 from app.models.assistant import AssistantTask
 from app.models.user import User
 from app.schemas.assistant import (
@@ -17,15 +19,32 @@ from app.schemas.assistant import (
     AssistantProfileUpdate,
     TaskPublic,
 )
-from app.services.assistant import AssistantService, AssistantUnavailable
+from app.services.assistant import (
+    AssistantService,
+    AssistantUnavailable,
+    DEFAULT_ASSISTANT_NAME,
+    DEFAULT_LANGUAGE,
+    DEFAULT_PERSONALITY,
+    DEFAULT_RESPONSE_STYLE,
+    DEFAULT_TIMEZONE,
+)
 from app.services.credits import InsufficientCredits
 
 router = APIRouter(prefix="/api", tags=["assistant"])
+log = logging.getLogger("app.assistant")
+
+
+def _payload(raw: str | None) -> dict:
+    try:
+        loaded = json.loads(raw or "{}")
+    except json.JSONDecodeError:
+        return {}
+    return loaded if isinstance(loaded, dict) else {}
 
 
 def _task_public(task: AssistantTask) -> TaskPublic:
-    payload_in = json.loads(task.input_data or "{}")
-    payload_out = json.loads(task.output_data or "{}")
+    payload_in = _payload(task.input_data)
+    payload_out = _payload(task.output_data)
     return TaskPublic(
         id=task.id,
         task_type=task.task_type,
@@ -42,20 +61,41 @@ def _service(session: AsyncSession) -> AssistantService:
     return AssistantService(session, get_ai_provider())
 
 
+def _profile_public(profile) -> AssistantProfilePublic:
+    if profile is None:
+        return AssistantProfilePublic.defaults()
+    return AssistantProfilePublic(
+        assistant_name=getattr(profile, "assistant_name", None) or DEFAULT_ASSISTANT_NAME,
+        personality=getattr(profile, "personality", None) or DEFAULT_PERSONALITY,
+        response_style=getattr(profile, "response_style", None) or DEFAULT_RESPONSE_STYLE,
+        timezone=getattr(profile, "timezone", None) or DEFAULT_TIMEZONE,
+        language=getattr(profile, "language", None) or DEFAULT_LANGUAGE,
+    )
+
+
 @router.get("/me/assistant", response_model=AssistantProfilePublic)
 async def read_assistant(
     user: Annotated[User, Depends(get_current_user)],
-    session: Annotated[AsyncSession, Depends(get_tenant_db)],
+    session: Annotated[AsyncSession, Depends(get_admin_db)],
 ) -> AssistantProfilePublic:
-    profile = await _service(session).get_or_create_profile(user.id)
-    return AssistantProfilePublic.model_validate(profile)
+    """Read-only. Live staging 500s because get_or_create INSERTed assistant_profiles."""
+    try:
+        profile = await _service(session).get_profile(user.id)
+    except Exception:
+        log.exception("GET /api/me/assistant read failed user_id=%s", user.id)
+        try:
+            await session.rollback()
+        except Exception:
+            log.exception("GET /api/me/assistant rollback failed user_id=%s", user.id)
+        profile = None
+    return _profile_public(profile)
 
 
 @router.patch("/me/assistant", response_model=AssistantProfilePublic)
 async def update_assistant(
     body: AssistantProfileUpdate,
     user: Annotated[User, Depends(get_current_user)],
-    session: Annotated[AsyncSession, Depends(get_tenant_db)],
+    session: Annotated[AsyncSession, Depends(get_admin_db)],
 ) -> AssistantProfilePublic:
     profile = await _service(session).update_profile(
         user.id,
@@ -65,14 +105,14 @@ async def update_assistant(
         timezone=body.timezone,
         language=body.language,
     )
-    return AssistantProfilePublic.model_validate(profile)
+    return _profile_public(profile)
 
 
 @router.post("/tasks", response_model=TaskPublic)
 async def create_task(
     body: AskRequest,
     user: Annotated[User, Depends(get_current_user)],
-    session: Annotated[AsyncSession, Depends(get_tenant_db)],
+    session: Annotated[AsyncSession, Depends(get_admin_db)],
 ) -> TaskPublic:
     try:
         task = await _service(session).ask(user, body.message)
@@ -84,9 +124,22 @@ async def create_task(
             detail="You've used your assistant credits. Upgrade your plan to continue.",
         ) from exc
     except AssistantUnavailable as exc:
+        log.warning("Assistant unavailable user_id=%s", user.id)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Your assistant is temporarily unavailable. Try again shortly.",
+        ) from exc
+    except SQLAlchemyError as exc:
+        log.exception("Ask failed for user_id=%s", user.id)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Your assistant is temporarily unavailable. Try again shortly.",
+        ) from exc
+    except Exception as exc:
+        log.exception("Ask failed for user_id=%s", user.id)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Something went wrong. Try again shortly.",
         ) from exc
     return _task_public(task)
 

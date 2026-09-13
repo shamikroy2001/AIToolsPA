@@ -9,8 +9,8 @@ Planned tables (D1 unless noted):
 - `users` — clerk_user_id, email, plan, status
 - `subscriptions` — Stripe ids, period bounds, status
 - `plans` — slug, display price, monthly_credits, rollover_cap (amounts not hard-coded in UI)
-- `task_costs` — task_type, base/min/max credits, enabled
-- `assistant_profiles` — name, personality, response_style, timezone, language, notification prefs, working hours
+- `task_costs` — task_type, base/min/max credits, enabled (catalog; `pa_app` SELECT only; never INSERT from the tenant ask path)
+- `assistant_profiles` — name, personality, response_style, timezone (quoted), language; `timestamptz` created/updated. `GET /api/me/assistant` is read-only (defaults if missing). PATCH upserts with the admin role **and** `app.user_id`. Tenant ask does not INSERT this row.
 - `credit_accounts` — period bounds, allowance, rollover_cap snapshot
 - `credit_lots` — source, original/remaining, expires_at, billing_period
 - `credit_transactions` — immutable ledger; types include MONTHLY_ALLOCATION, ROLLOVER, AI_USAGE, TOPUP (D2), REFUND, ADMIN_ADJUSTMENT, EXPIRATION, RESERVATION, RELEASE
@@ -20,3 +20,5 @@ Planned tables (D1 unless noted):
 - D2: `integrations`, `scheduled_tasks`, `monitored_websites`, `notifications`
 
 RLS policies use `current_setting('app.user_id', true)`. Service role is limited to webhooks, admin, and workers that set tenant context explicitly.
+
+`plans` and `task_costs` are not tenant-scoped. If RLS is enabled on them, they need a `FOR SELECT USING (true)` policy (`0005_catalog_rls` / `infrastructure/supabase/bootstrap.sql`). Do not add a `user_id` policy — those columns do not exist.
