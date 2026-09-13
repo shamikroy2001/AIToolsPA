@@ -188,6 +188,23 @@ async def test_get_or_create_profile_returns_defaults_when_insert_denied(
     assert profile.timezone == "UTC"
 
 
+@pytest.mark.asyncio
+async def test_update_profile_returns_values_when_insert_denied(ask_session: AsyncSession):
+    user = await _user_with_credits(ask_session)
+    original_add = ask_session.add
+
+    def deny_profile_writes(obj) -> None:
+        if isinstance(obj, AssistantProfile):
+            raise RuntimeError("permission denied for table assistant_profiles")
+        original_add(obj)
+
+    ask_session.add = deny_profile_writes  # type: ignore[method-assign]
+    service = AssistantService(ask_session, FakeAIProvider())
+    profile = await service.update_profile(user.id, assistant_name="Riley")
+    assert profile.assistant_name == "Riley"
+    assert (await ask_session.scalar(select(AssistantProfile))) is None
+
+
 def test_assistant_profile_model_matches_alembic_0003():
     """Alembic 0003 created timestamptz + a timezone column; the ORM must match."""
     from sqlalchemy.dialects import postgresql

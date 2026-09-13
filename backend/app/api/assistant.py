@@ -19,7 +19,15 @@ from app.schemas.assistant import (
     AssistantProfileUpdate,
     TaskPublic,
 )
-from app.services.assistant import AssistantService, AssistantUnavailable
+from app.services.assistant import (
+    AssistantService,
+    AssistantUnavailable,
+    DEFAULT_ASSISTANT_NAME,
+    DEFAULT_LANGUAGE,
+    DEFAULT_PERSONALITY,
+    DEFAULT_RESPONSE_STYLE,
+    DEFAULT_TIMEZONE,
+)
 from app.services.credits import InsufficientCredits
 
 router = APIRouter(prefix="/api", tags=["assistant"])
@@ -53,13 +61,34 @@ def _service(session: AsyncSession) -> AssistantService:
     return AssistantService(session, get_ai_provider())
 
 
+def _profile_public(profile) -> AssistantProfilePublic:
+    if profile is None:
+        return AssistantProfilePublic.defaults()
+    return AssistantProfilePublic(
+        assistant_name=getattr(profile, "assistant_name", None) or DEFAULT_ASSISTANT_NAME,
+        personality=getattr(profile, "personality", None) or DEFAULT_PERSONALITY,
+        response_style=getattr(profile, "response_style", None) or DEFAULT_RESPONSE_STYLE,
+        timezone=getattr(profile, "timezone", None) or DEFAULT_TIMEZONE,
+        language=getattr(profile, "language", None) or DEFAULT_LANGUAGE,
+    )
+
+
 @router.get("/me/assistant", response_model=AssistantProfilePublic)
 async def read_assistant(
     user: Annotated[User, Depends(get_current_user)],
     session: Annotated[AsyncSession, Depends(get_admin_db)],
 ) -> AssistantProfilePublic:
-    profile = await _service(session).get_or_create_profile(user.id)
-    return AssistantProfilePublic.model_validate(profile)
+    """Read-only. Live staging 500s because get_or_create INSERTed assistant_profiles."""
+    try:
+        profile = await _service(session).get_profile(user.id)
+    except Exception:
+        log.exception("GET /api/me/assistant read failed user_id=%s", user.id)
+        try:
+            await session.rollback()
+        except Exception:
+            log.exception("GET /api/me/assistant rollback failed user_id=%s", user.id)
+        profile = None
+    return _profile_public(profile)
 
 
 @router.patch("/me/assistant", response_model=AssistantProfilePublic)
@@ -76,7 +105,7 @@ async def update_assistant(
         timezone=body.timezone,
         language=body.language,
     )
-    return AssistantProfilePublic.model_validate(profile)
+    return _profile_public(profile)
 
 
 @router.post("/tasks", response_model=TaskPublic)

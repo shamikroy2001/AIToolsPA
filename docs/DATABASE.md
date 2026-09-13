@@ -10,7 +10,7 @@ Planned tables (D1 unless noted):
 - `subscriptions` — Stripe ids, period bounds, status
 - `plans` — slug, display price, monthly_credits, rollover_cap (amounts not hard-coded in UI)
 - `task_costs` — task_type, base/min/max credits, enabled (catalog; `pa_app` SELECT only; never INSERT from the tenant ask path)
-- `assistant_profiles` — name, personality, response_style, timezone (quoted), language; `timestamptz` created/updated. Upserted with the admin role **and** `app.user_id` so FORCE RLS WITH CHECK passes. Tenant ask does not INSERT this row.
+- `assistant_profiles` — name, personality, response_style, timezone (quoted), language; `timestamptz` created/updated. `GET /api/me/assistant` is read-only (defaults if missing). PATCH upserts with the admin role **and** `app.user_id`. Tenant ask does not INSERT this row.
 - `credit_accounts` — period bounds, allowance, rollover_cap snapshot
 - `credit_lots` — source, original/remaining, expires_at, billing_period
 - `credit_transactions` — immutable ledger; types include MONTHLY_ALLOCATION, ROLLOVER, AI_USAGE, TOPUP (D2), REFUND, ADMIN_ADJUSTMENT, EXPIRATION, RESERVATION, RELEASE

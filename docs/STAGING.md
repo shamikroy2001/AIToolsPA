@@ -53,12 +53,23 @@ This repo cannot create your Railway / Vercel / Supabase / Clerk / Stripe projec
 9. **AI Gateway:** key and route model IDs on Railway only.
 10. Confirm CORS: `PUBLIC_APP_URL` and `CORS_ORIGINS` equal the Vercel origin.
 
-### GET /api/me/assistant and POST /api/tasks 500 while D2 GETs work
+### GET/PATCH /api/me/assistant and POST /api/tasks 500 while D2 GETs work
 
-Those two routes used to `INSERT assistant_profiles` as `pa_app`. D2 list endpoints and `GET /api/credits` only SELECT (credits were already provisioned). Two independent failures show up the same way:
+Confirmed on live Railway HTTP logs (staging still on `main` `60a3905`), not only the older `task_costs` INSERT theory. Operator disabled RLS on `task_costs` and seeded `assistant_ask`; ask still 500s.
+
+| Route | Live result |
+| --- | --- |
+| `GET /api/me`, `/api/credits`, `/api/plans`, `/api/monitors`, `/api/integrations` | 200 |
+| `GET /api/me/assistant` | 500 (~350–500ms) |
+| `PATCH /api/me/assistant` | 500 |
+| `POST /api/tasks` | 500 (same latency; no debit) |
+
+On `main`, GET/PATCH/ask all call `get_or_create_profile`, which **INSERTs `assistant_profiles` as `pa_app`**. That handler never touches `task_costs` or the AI gateway. Two write failures:
 
 1. **Schema vs model.** Alembic `0003` created `created_at` / `updated_at` as `timestamptz`. The ORM used naive `DateTime` + aware `utc_now()` — the same asyncpg bind error that previously broke `users` / `plans`. The model now uses `DateTime(timezone=True)`. The `timezone` column is quoted.
-2. **RLS.** `ENABLE` + `FORCE ROW LEVEL SECURITY` without `{table}_tenant` (or without `app.user_id` on the admin role when it is not a superuser) denies INSERT. Profile GET/PATCH and ask now use the **admin** engine **and** `set_config('app.user_id', ...)`. Ask does not require a profile row.
+2. **RLS / GRANT.** `ENABLE` + `FORCE ROW LEVEL SECURITY` without `{table}_tenant` denies tenant INSERT. Admin upserts now set `app.user_id`.
+
+`GET /api/me/assistant` is now **read-only** (defaults if the row is missing or unreadable). PATCH/ask persist via admin + `app.user_id` and return in-memory values if persist is denied. Ask does not call `get_or_create_profile`.
 
 Optional paste: `infrastructure/supabase/assistant_rls.sql` (or Alembic `0006_assistant_profile_rls`). Clerk session JWTs from this app expire in ~60 seconds — mint a fresh token immediately before a live curl.
 

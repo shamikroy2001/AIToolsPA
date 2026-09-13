@@ -161,7 +161,14 @@ class AssistantService:
         timezone: str | None = None,
         language: str | None = None,
     ) -> AssistantProfile:
-        profile = await self.get_or_create_profile(user_id)
+        try:
+            profile = await self.get_profile(user_id)
+        except Exception:
+            log.warning("assistant profile read failed user_id=%s", user_id, exc_info=True)
+            profile = None
+        creating = profile is None
+        if creating:
+            profile = _unsaved_default_profile(user_id)
         if assistant_name is not None:
             profile.assistant_name = assistant_name.strip()[:80] or profile.assistant_name
         if personality is not None:
@@ -172,7 +179,26 @@ class AssistantService:
             profile.timezone = timezone.strip()[:64] or "UTC"
         if language is not None:
             profile.language = language.strip()[:32] or "en"
-        await self._session.flush()
+        snapshot = _unsaved_default_profile(user_id)
+        snapshot.assistant_name = profile.assistant_name
+        snapshot.personality = profile.personality
+        snapshot.response_style = profile.response_style
+        snapshot.timezone = profile.timezone
+        snapshot.language = profile.language
+        try:
+            if creating:
+                self._session.add(profile)
+            await self._session.flush()
+        except Exception:
+            log.exception(
+                "assistant profile persist failed user_id=%s; returning in-memory update",
+                user_id,
+            )
+            try:
+                await self._session.rollback()
+            except Exception:
+                log.exception("assistant profile session rollback failed")
+            return snapshot
         return profile
 
     async def list_tasks(self, user_id: UUID, limit: int = 20) -> list[AssistantTask]:
