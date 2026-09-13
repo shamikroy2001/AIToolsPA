@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from datetime import datetime, timezone
 from uuid import UUID
 
@@ -8,22 +9,64 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.router import AIRouter
-from app.ai.types import GenerateRequest
+from app.ai.types import GenerateRequest, GenerateResult
 from app.core.settings import get_settings
 from app.models.assistant import AIUsage, AssistantProfile, AssistantTask, TaskCost
 from app.models.user import User
 from app.services.credits import CreditService, InsufficientCredits
 
+log = logging.getLogger("app.assistant")
+
+DEFAULT_ASK_COST = 5
 
 DEFAULT_TASK_COSTS = (
     {
         "task_type": "assistant_ask",
-        "base_credit_cost": 5,
+        "base_credit_cost": DEFAULT_ASK_COST,
         "minimum_cost": 1,
         "maximum_cost": 20,
         "enabled": True,
     },
+    {
+        "task_type": "gmail_analyze",
+        "base_credit_cost": 8,
+        "minimum_cost": 2,
+        "maximum_cost": 40,
+        "enabled": True,
+    },
+    {
+        "task_type": "website_monitor",
+        "base_credit_cost": 3,
+        "minimum_cost": 1,
+        "maximum_cost": 15,
+        "enabled": True,
+    },
+    {
+        "task_type": "telegram_notify",
+        "base_credit_cost": 1,
+        "minimum_cost": 1,
+        "maximum_cost": 5,
+        "enabled": True,
+    },
 )
+
+
+def default_task_cost(task_type: str) -> int:
+    for row in DEFAULT_TASK_COSTS:
+        if row["task_type"] == task_type:
+            return int(row["base_credit_cost"])
+    return DEFAULT_ASK_COST
+
+
+async def seed_task_costs(session: AsyncSession) -> None:
+    """Idempotent catalog seed. Call from an admin session, never pa_app."""
+    for row in DEFAULT_TASK_COSTS:
+        existing = await session.scalar(
+            select(TaskCost).where(TaskCost.task_type == row["task_type"])
+        )
+        if existing is None:
+            session.add(TaskCost(**row))
+    await session.flush()
 
 
 class AssistantUnavailable(Exception):
@@ -38,13 +81,8 @@ class AssistantService:
         self._credits = CreditService(session)
 
     async def ensure_task_costs(self) -> None:
-        for row in DEFAULT_TASK_COSTS:
-            existing = await self._session.scalar(
-                select(TaskCost).where(TaskCost.task_type == row["task_type"])
-            )
-            if existing is None:
-                self._session.add(TaskCost(**row))
-        await self._session.flush()
+        """Admin/migrate only. Tenant role (pa_app) has SELECT, not INSERT."""
+        await seed_task_costs(self._session)
 
     async def get_or_create_profile(self, user_id: UUID) -> AssistantProfile:
         profile = await self._session.scalar(
@@ -96,12 +134,16 @@ class AssistantService:
         return task
 
     async def estimate_cost(self, task_type: str) -> int:
-        await self.ensure_task_costs()
-        cost = await self._session.scalar(
-            select(TaskCost).where(TaskCost.task_type == task_type, TaskCost.enabled.is_(True))
-        )
+        fallback = default_task_cost(task_type)
+        try:
+            cost = await self._session.scalar(
+                select(TaskCost).where(TaskCost.task_type == task_type, TaskCost.enabled.is_(True))
+            )
+        except Exception:
+            log.exception("task_costs read failed for %s; using default %s", task_type, fallback)
+            return fallback
         if cost is None:
-            return 5
+            return fallback
         return max(cost.minimum_cost, min(cost.base_credit_cost, cost.maximum_cost))
 
     async def ask(self, user: User, message: str) -> AssistantTask:
@@ -140,14 +182,18 @@ class AssistantService:
             f"Language: {profile.language}. "
             "Never mention AI providers, model names, tokens, or routing."
         )
-        result = await self._provider.generate(
-            GenerateRequest(
-                route_key=route.route_key,
-                system=system,
-                user_message=message,
-                timeout_seconds=settings.ai_timeout_seconds,
+        try:
+            result = await self._provider.generate(
+                GenerateRequest(
+                    route_key=route.route_key,
+                    system=system,
+                    user_message=message,
+                    timeout_seconds=settings.ai_timeout_seconds,
+                )
             )
-        )
+        except Exception:
+            log.exception("AI generate failed task_id=%s", task.id)
+            result = GenerateResult(text="", success=False, error="unavailable")
         usage = AIUsage(
             user_id=user.id,
             task_id=task.id,
@@ -160,7 +206,12 @@ class AssistantService:
             latency_ms=result.latency_ms,
             success=result.success,
         )
-        self._session.add(usage)
+        try:
+            async with self._session.begin_nested():
+                self._session.add(usage)
+                await self._session.flush()
+        except Exception:
+            log.exception("ai_usage persist failed task_id=%s", task.id)
 
         if not result.success:
             await self._credits.release(user.id, cost, task_id=task.id)

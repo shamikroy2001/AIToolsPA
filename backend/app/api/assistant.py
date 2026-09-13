@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai import get_ai_provider
@@ -21,11 +23,20 @@ from app.services.assistant import AssistantService, AssistantUnavailable
 from app.services.credits import InsufficientCredits
 
 router = APIRouter(prefix="/api", tags=["assistant"])
+log = logging.getLogger("app.assistant")
+
+
+def _payload(raw: str | None) -> dict:
+    try:
+        loaded = json.loads(raw or "{}")
+    except json.JSONDecodeError:
+        return {}
+    return loaded if isinstance(loaded, dict) else {}
 
 
 def _task_public(task: AssistantTask) -> TaskPublic:
-    payload_in = json.loads(task.input_data or "{}")
-    payload_out = json.loads(task.output_data or "{}")
+    payload_in = _payload(task.input_data)
+    payload_out = _payload(task.output_data)
     return TaskPublic(
         id=task.id,
         task_type=task.task_type,
@@ -84,9 +95,22 @@ async def create_task(
             detail="You've used your assistant credits. Upgrade your plan to continue.",
         ) from exc
     except AssistantUnavailable as exc:
+        log.warning("Assistant unavailable user_id=%s", user.id)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Your assistant is temporarily unavailable. Try again shortly.",
+        ) from exc
+    except SQLAlchemyError as exc:
+        log.exception("Ask failed for user_id=%s", user.id)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Your assistant is temporarily unavailable. Try again shortly.",
+        ) from exc
+    except Exception as exc:
+        log.exception("Ask failed for user_id=%s", user.id)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Something went wrong. Try again shortly.",
         ) from exc
     return _task_public(task)
 

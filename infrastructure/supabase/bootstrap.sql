@@ -44,3 +44,21 @@ BEGIN
   END LOOP;
 END
 $$;
+
+-- Catalog tables have no user_id. If an operator enables RLS on them (Supabase
+-- warns about public tables without RLS), pa_app must still be able to SELECT.
+-- Do not add INSERT policies: seeds belong to the postgres/admin role.
+DO $$
+BEGIN
+  IF to_regclass('public.task_costs') IS NOT NULL THEN
+    ALTER TABLE task_costs ENABLE ROW LEVEL SECURITY;
+    DROP POLICY IF EXISTS task_costs_read ON task_costs;
+    CREATE POLICY task_costs_read ON task_costs FOR SELECT USING (true);
+  END IF;
+  IF to_regclass('public.plans') IS NOT NULL THEN
+    ALTER TABLE plans ENABLE ROW LEVEL SECURITY;
+    DROP POLICY IF EXISTS plans_read ON plans;
+    CREATE POLICY plans_read ON plans FOR SELECT USING (true);
+  END IF;
+END
+$$;

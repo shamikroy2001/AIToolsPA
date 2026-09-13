@@ -53,6 +53,25 @@ This repo cannot create your Railway / Vercel / Supabase / Clerk / Stripe projec
 9. **AI Gateway:** key and route model IDs on Railway only.
 10. Confirm CORS: `PUBLIC_APP_URL` and `CORS_ORIGINS` equal the Vercel origin.
 
+### POST /api/tasks 500 while /api/me and /api/credits work
+
+`task_costs` and `plans` are catalog tables (no `user_id`). If RLS is enabled on them without a `SELECT` policy, `pa_app` sees zero cost rows. Older API builds then tried to INSERT `task_costs` (GRANT is SELECT-only) and returned an opaque `text/plain` 500 without CORS.
+
+The API no longer writes `task_costs` on the ask path (defaults to 5 credits). Alembic `0005_catalog_rls` and a re-run of `infrastructure/supabase/bootstrap.sql` add `task_costs_read` / `plans_read`. Optional paste if you cannot wait for migrate:
+
+```sql
+ALTER TABLE task_costs ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS task_costs_read ON task_costs;
+CREATE POLICY task_costs_read ON task_costs FOR SELECT USING (true);
+GRANT SELECT ON TABLE task_costs TO pa_app;
+
+INSERT INTO task_costs (id, task_type, base_credit_cost, minimum_cost, maximum_cost, enabled)
+VALUES (gen_random_uuid(), 'assistant_ask', 5, 1, 20, true)
+ON CONFLICT (task_type) DO UPDATE SET enabled = true, base_credit_cost = 5;
+```
+
+`AI_GATEWAY_API_KEY` and `AI_GATEWAY_BASE_URL` stay on Railway only. Unhandled errors now return JSON `{"detail": "..."}` with CORS headers and an `app.errors` / `app.assistant` traceback in Railway deploy logs.
+
 Do not start D2 work until this list is checked off in staging.
 
 ## D2 Slice 2 (APIs; release stays D1-staging)
