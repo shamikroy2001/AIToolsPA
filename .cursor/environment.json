@@ -1,0 +1,24 @@
+{
+  "name": "Personal Assistant (D1 staging)",
+  "user": "ubuntu",
+  "install": "bash .cursor/install.sh",
+  "start": "bash .cursor/start.sh",
+  "terminals": [
+    {
+      "name": "api",
+      "command": "cd backend && . .venv/bin/activate && python start_api.py"
+    },
+    {
+      "name": "worker",
+      "command": "cd backend && . .venv/bin/activate && python -m arq app.workers.arq_worker.WorkerSettings"
+    },
+    {
+      "name": "web",
+      "command": "cd frontend && npm run dev"
+    }
+  ],
+  "ports": [
+    { "name": "API", "port": 8000 },
+    { "name": "Web", "port": 3000 }
+  ]
+}
