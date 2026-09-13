@@ -26,6 +26,11 @@ async def seed_plan_catalog() -> None:
 
     last_error: Exception | None = None
     recovered = False
+    try:
+        await ensure_core_schema()
+        recovered = True
+    except Exception:
+        log.exception("asyncpg schema ensure failed")
     for attempt in range(12):
         try:
             factory = admin_session_factory()

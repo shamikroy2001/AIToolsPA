@@ -12,5 +12,11 @@ class Base(DeclarativeBase):
     pass
 
 
+def aware_timestamp(*, onupdate: bool = False):
+    if onupdate:
+        return mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
+    return mapped_column(DateTime(timezone=True), default=utc_now)
+
+
 def timestamp_column():
-    return mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
+    return aware_timestamp(onupdate=True)

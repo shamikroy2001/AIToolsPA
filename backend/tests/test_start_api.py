@@ -36,12 +36,16 @@ async def test_lifespan_yields_before_plan_seed_finishes(monkeypatch):
         async def __aexit__(self, *args):
             return None
 
+    async def _schema_ready() -> None:
+        return None
+
     monkeypatch.setattr("app.main.init_engines_from_settings", lambda: None)
     monkeypatch.setattr("app.main.get_app_engine", lambda: None)
     monkeypatch.setattr(
         "app.main.get_settings",
         lambda: SimpleNamespace(environment="staging"),
     )
+    monkeypatch.setattr("app.core.schema.ensure_core_schema", _schema_ready)
     monkeypatch.setattr("app.main.admin_session_factory", lambda: HangingSession)
 
     yielded = False

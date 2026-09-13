@@ -82,6 +82,13 @@ def test_supabase_hosts_use_require_ssl():
     assert direct["ssl"] == "require"
 
 
+def test_plan_timestamps_are_timezone_aware():
+    from app.models.plan import Plan
+
+    assert Plan.__table__.c.created_at.type.timezone is True
+    assert Plan.__table__.c.updated_at.type.timezone is True
+
+
 def test_missing_relation_detects_undefined_table():
     assert missing_relation(Exception('relation "plans" does not exist'))
     assert missing_relation(Exception("asyncpg.exceptions.UndefinedTableError"))
