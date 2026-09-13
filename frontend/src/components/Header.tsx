@@ -55,5 +55,14 @@ export function AuthHeader({ children }: { children: ReactNode }) {
   if (!publishableKey) {
     return <>{children}</>;
   }
-  return <ClerkProvider publishableKey={publishableKey}>{children}</ClerkProvider>;
+  return (
+    <ClerkProvider
+      publishableKey={publishableKey}
+      signInFallbackRedirectUrl="/dashboard"
+      signUpFallbackRedirectUrl="/dashboard"
+      afterSignOutUrl="/"
+    >
+      {children}
+    </ClerkProvider>
+  );
 }

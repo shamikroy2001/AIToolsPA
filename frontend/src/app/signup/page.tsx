@@ -7,7 +7,13 @@ export default function SignupPage() {
     <div className="space-y-4">
       <h1 className="text-3xl font-semibold tracking-tight">Create an account</h1>
       {configured ? (
-        <SignUp routing="path" path="/signup" signInUrl="/login" />
+        <SignUp
+          routing="path"
+          path="/signup"
+          signInUrl="/login"
+          forceRedirectUrl="/dashboard"
+          fallbackRedirectUrl="/dashboard"
+        />
       ) : (
         <ComingIn release="D1">
           Add Clerk keys to enable registration. After D1b, new accounts go through plan checkout.
