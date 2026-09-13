@@ -63,3 +63,18 @@ Catalog, monitors, schedules, and notifications APIs plus Connections / Monitori
 - `POST /api/integrations/gmail/connect` and Telegram connect return 503 until OAuth env exists. Real OAuth is a later slice.
 - Worker registers `poll_due_monitors` as a no-op cron so Arq is proven. Real hash-check polling comes next.
 - Leave `/health` `release` as `D1-staging` until these APIs are proven on staging. Do not enable Stripe.
+
+## D2 Slice 3 (monitor worker; release stays D1-staging)
+
+`poll_due_monitors` hash-checks enabled website monitors every 15 minutes. No Google/Telegram env.
+
+- **Due monitors:** `enabled` and `last_checked_at` is null or older than 15 minutes.
+- **HTTP:** GET with a 10s timeout and `AIToolsPA-Monitor/1.0` user-agent. Body is SHA-256 hashed (first 1 MB).
+- **First check:** stores `last_hash` as a baseline. No notification.
+- **Change:** updates `last_hash` / `last_changed_at` / `last_checked_at` and writes an `in_app` notification. No hashes or credentials in the payload.
+- **No change:** updates `last_checked_at` only. Still charges (the check is the billed work).
+- **Credits:** `task_costs.website_monitor` (base 3). Charged only after a successful GET via `CreditService.consume`. Insufficient credits **fail soft**: that monitor is skipped (no fetch, no notify, `last_checked_at` unchanged) and other monitors still run. HTTP failures also skip charge and leave `last_checked_at` unset so the next cron retries.
+- **Tenancy:** admin session lists due rows; each write sets `app.user_id` before mutating that user's monitor/credits/notification.
+- **Schedules:** `gmail_analyze` / `telegram_notify` / `assistant_ask` are skipped and stay due. A `website_monitor` schedule only advances `next_run_at` — the actual fetch is the monitor row poll.
+- **Railway worker** may not exist yet in `dazzling-transformation`. Add a second service with Dockerfile `Dockerfile.worker` and start command `python -m arq app.workers.arq_worker.WorkerSettings`. Same `REDIS_URL` and `DATABASE_ADMIN_URL` as D1. Do not run Alembic on the worker. Do not add Gmail/Telegram secrets.
+- Leave `/health` `release` as `D1-staging`. Do not enable Stripe.
