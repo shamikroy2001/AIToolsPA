@@ -17,7 +17,7 @@ class AssistantProfile(Base):
     assistant_name: Mapped[str] = mapped_column(String(80), default="Assistant")
     personality: Mapped[str] = mapped_column(String(255), default="Helpful and concise")
     response_style: Mapped[str] = mapped_column(String(64), default="clear")
-    timezone: Mapped[str] = mapped_column(String(64), default="UTC")
+    timezone: Mapped[str] = mapped_column("timezone", String(64), default="UTC", quote=True)
     language: Mapped[str] = mapped_column(String(32), default="en")
     created_at: Mapped[datetime] = aware_timestamp()
     updated_at: Mapped[datetime] = aware_timestamp(onupdate=True)

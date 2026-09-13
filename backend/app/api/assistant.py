@@ -10,7 +10,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai import get_ai_provider
-from app.api.deps import get_current_user, get_tenant_db
+from app.api.deps import get_admin_db, get_current_user, get_tenant_db
 from app.models.assistant import AssistantTask
 from app.models.user import User
 from app.schemas.assistant import (
@@ -56,7 +56,7 @@ def _service(session: AsyncSession) -> AssistantService:
 @router.get("/me/assistant", response_model=AssistantProfilePublic)
 async def read_assistant(
     user: Annotated[User, Depends(get_current_user)],
-    session: Annotated[AsyncSession, Depends(get_tenant_db)],
+    session: Annotated[AsyncSession, Depends(get_admin_db)],
 ) -> AssistantProfilePublic:
     profile = await _service(session).get_or_create_profile(user.id)
     return AssistantProfilePublic.model_validate(profile)
@@ -66,7 +66,7 @@ async def read_assistant(
 async def update_assistant(
     body: AssistantProfileUpdate,
     user: Annotated[User, Depends(get_current_user)],
-    session: Annotated[AsyncSession, Depends(get_tenant_db)],
+    session: Annotated[AsyncSession, Depends(get_admin_db)],
 ) -> AssistantProfilePublic:
     profile = await _service(session).update_profile(
         user.id,

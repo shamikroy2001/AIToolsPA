@@ -20,7 +20,7 @@ import app.models  # noqa: F401
 from app.ai.fake import FakeAIProvider
 from app.ai.types import GenerateRequest, GenerateResult
 from app.core.plan_catalog import DEFAULT_PLANS
-from app.models.assistant import AssistantTask, TaskCost
+from app.models.assistant import AssistantProfile, AssistantTask, TaskCost
 from app.models.base import Base
 from app.models.plan import Plan
 from app.models.user import User
@@ -118,6 +118,31 @@ async def test_ask_succeeds_when_task_cost_insert_is_denied(ask_session: AsyncSe
     assert '"reply": "D1 gate ok"' in (stored.output_data or "")
 
 
+@pytest.mark.asyncio
+async def test_ask_succeeds_when_profile_insert_is_denied(ask_session: AsyncSession):
+    """Tenant INSERT on assistant_profiles must not block ask (admin upserts the row)."""
+    user = await _user_with_credits(ask_session)
+    original_add = ask_session.add
+
+    def deny_profile_writes(obj) -> None:
+        if isinstance(obj, AssistantProfile):
+            raise RuntimeError("permission denied for table assistant_profiles")
+        original_add(obj)
+
+    ask_session.add = deny_profile_writes  # type: ignore[method-assign]
+    service = AssistantService(ask_session, FakeAIProvider(text="D1 gate ok"))
+    task = await service.ask(user, "Reply with exactly: D1 gate ok")
+    assert task.status == "completed"
+    assert (await ask_session.scalar(select(AssistantProfile))) is None
+
+
+def test_assistant_profile_timestamps_are_timezone_aware():
+    assert AssistantProfile.__table__.c.created_at.type.timezone is True
+    assert AssistantProfile.__table__.c.updated_at.type.timezone is True
+    assert AssistantTask.__table__.c.created_at.type.timezone is True
+    assert AssistantTask.__table__.c.completed_at.type.timezone is True
+
+
 def test_provider_crash_is_json_503_with_cors(saas_client: TestClient):
     from app.ai import set_ai_provider
 
@@ -152,7 +177,7 @@ def test_unhandled_ask_error_is_json_500_with_cors(
         del self, user_id
         raise RuntimeError("simulated profile failure")
 
-    monkeypatch.setattr(AssistantService, "get_or_create_profile", boom)
+    monkeypatch.setattr(AssistantService, "get_profile", boom)
     me = saas_client.get("/api/me", headers=_auth()).json()
     _allocate_pro(saas_client, me["id"], "evt_unhandled")
     origin = "http://localhost:3000"

@@ -84,15 +84,30 @@ class AssistantService:
         """Admin/migrate only. Tenant role (pa_app) has SELECT, not INSERT."""
         await seed_task_costs(self._session)
 
-    async def get_or_create_profile(self, user_id: UUID) -> AssistantProfile:
-        profile = await self._session.scalar(
+    async def get_profile(self, user_id: UUID) -> AssistantProfile | None:
+        return await self._session.scalar(
             select(AssistantProfile).where(AssistantProfile.user_id == user_id)
         )
+
+    async def get_or_create_profile(self, user_id: UUID) -> AssistantProfile:
+        """Persist via an admin session. Tenant (pa_app) INSERT may be denied by RLS."""
+        profile = await self.get_profile(user_id)
         if profile is None:
             profile = AssistantProfile(user_id=user_id)
             self._session.add(profile)
             await self._session.flush()
         return profile
+
+    @staticmethod
+    def prompt_bits(profile: AssistantProfile | None) -> tuple[str, str, str, str]:
+        if profile is None:
+            return "Assistant", "Helpful and concise", "clear", "en"
+        return (
+            profile.assistant_name,
+            profile.personality,
+            profile.response_style,
+            profile.language,
+        )
 
     async def update_profile(
         self,
@@ -150,7 +165,8 @@ class AssistantService:
         message = message.strip()
         if not message:
             raise ValueError("Message is required")
-        profile = await self.get_or_create_profile(user.id)
+        profile = await self.get_profile(user.id)
+        name, personality, style, language = self.prompt_bits(profile)
         cost = await self.estimate_cost("assistant_ask")
         task = AssistantTask(
             user_id=user.id,
@@ -176,10 +192,10 @@ class AssistantService:
             message=message,
         )
         system = (
-            f"You are {profile.assistant_name}, a personal assistant. "
-            f"Personality: {profile.personality}. "
-            f"Response style: {profile.response_style}. "
-            f"Language: {profile.language}. "
+            f"You are {name}, a personal assistant. "
+            f"Personality: {personality}. "
+            f"Response style: {style}. "
+            f"Language: {language}. "
             "Never mention AI providers, model names, tokens, or routing."
         )
         try:

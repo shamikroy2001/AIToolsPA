@@ -45,6 +45,30 @@ BEGIN
 END
 $$;
 
+-- Tenant tables: re-apply D1 policies. Enabling RLS without a policy makes
+-- SELECT empty and INSERT fail (GET /api/me/assistant + POST /api/tasks 500).
+DO $$
+DECLARE
+  t text;
+BEGIN
+  FOREACH t IN ARRAY ARRAY['assistant_profiles', 'assistant_tasks', 'ai_usage']
+  LOOP
+    IF to_regclass('public.' || t) IS NULL THEN
+      CONTINUE;
+    END IF;
+    EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
+    EXECUTE format('ALTER TABLE %I FORCE ROW LEVEL SECURITY', t);
+    EXECUTE format('DROP POLICY IF EXISTS %I ON %I', t || '_tenant', t);
+    EXECUTE format(
+      'CREATE POLICY %I ON %I FOR ALL '
+      'USING (user_id::text = current_setting(''app.user_id'', true)) '
+      'WITH CHECK (user_id::text = current_setting(''app.user_id'', true))',
+      t || '_tenant', t
+    );
+  END LOOP;
+END
+$$;
+
 -- Catalog tables have no user_id. If an operator enables RLS on them (Supabase
 -- warns about public tables without RLS), pa_app must still be able to SELECT.
 -- Do not add INSERT policies: seeds belong to the postgres/admin role.

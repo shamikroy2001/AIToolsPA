@@ -53,6 +53,12 @@ This repo cannot create your Railway / Vercel / Supabase / Clerk / Stripe projec
 9. **AI Gateway:** key and route model IDs on Railway only.
 10. Confirm CORS: `PUBLIC_APP_URL` and `CORS_ORIGINS` equal the Vercel origin.
 
+### GET /api/me/assistant and POST /api/tasks 500 while D2 GETs work
+
+Those two routes create `assistant_profiles`. D2 list endpoints only SELECT. If RLS is on `assistant_profiles` without `{table}_tenant`, tenant INSERT fails and both routes 500. The API now upserts the profile with the **admin** role (same as `users`) and ask no longer requires a tenant profile insert.
+
+Optional paste: `infrastructure/supabase/assistant_rls.sql` (or Alembic `0006_assistant_profile_rls`).
+
 ### POST /api/tasks 500 while /api/me and /api/credits work
 
 `task_costs` and `plans` are catalog tables (no `user_id`). If RLS is enabled on them without a `SELECT` policy, `pa_app` sees zero cost rows. Older API builds then tried to INSERT `task_costs` (GRANT is SELECT-only) and returned an opaque `text/plain` 500 without CORS.

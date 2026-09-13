@@ -66,3 +66,16 @@ async def get_tenant_db(
             log.exception("Tenant session failed user_id=%s", user.id)
             await session.rollback()
             raise
+
+
+async def get_admin_db() -> AsyncSession:
+    """Postgres/admin role. Use for user-scoped catalog rows that pa_app cannot insert."""
+    factory = admin_session_factory()
+    async with factory() as session:
+        try:
+            yield session
+            await session.commit()
+        except Exception:
+            log.exception("Admin session failed")
+            await session.rollback()
+            raise
