@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import ssl
 from urllib.parse import parse_qsl, quote, unquote, urlencode, urlparse, urlunparse
 
 
@@ -88,24 +87,14 @@ def needs_ssl(url: str) -> bool:
     return bool(url) and not url.startswith("sqlite") and not _is_local(url)
 
 
-def is_supabase_pooler(url: str) -> bool:
-    host = urlparse(url).hostname or ""
-    return host.endswith(".pooler.supabase.com")
+def postgres_ssl_setting(url: str) -> str:
+    """asyncpg TLS equivalent of sslmode=require: encrypt, do not verify the CA.
 
-
-def postgres_ssl_setting(url: str) -> bool | ssl.SSLContext:
-    """asyncpg TLS. Pooler chains often fail default verify (self-signed intermediate)."""
-    if is_supabase_pooler(url):
-        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-        ctx.check_hostname = False
-        ctx.verify_mode = ssl.CERT_NONE
-        return ctx
-    try:
-        import certifi
-
-        return ssl.create_default_context(cafile=certifi.where())
-    except Exception:
-        return True
+    `ssl=True` and a default SSLContext both verify the chain. Supabase pooler
+    and `db.*.supabase.co` present a self-signed intermediate that fails that
+    check on Railway.
+    """
+    return "require"
 
 
 def with_required_ssl(url: str) -> str:
@@ -113,6 +102,6 @@ def with_required_ssl(url: str) -> str:
         return url
     parsed = urlparse(url)
     query = dict(parse_qsl(parsed.query, keep_blank_values=True))
-    if "ssl" not in query and "sslmode" not in query:
-        query["sslmode"] = "require"
+    query.pop("ssl", None)
+    query["sslmode"] = "require"
     return urlunparse(parsed._replace(query=urlencode(query)))

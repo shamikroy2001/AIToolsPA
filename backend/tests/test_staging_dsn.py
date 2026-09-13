@@ -66,18 +66,18 @@ def test_remote_engine_always_sets_connect_timeout():
     )
     assert args["timeout"] == 15
     assert args["command_timeout"] == 15
-    assert args["ssl"] is not False
+    assert args["ssl"] == "require"
 
 
-def test_supabase_pooler_skips_cert_verify():
-    import ssl
-
-    args = engine_connect_args(
+def test_supabase_hosts_use_require_ssl():
+    pooler = engine_connect_args(
         "postgresql+asyncpg://postgres.proj:x@aws-0-ca-central-1.pooler.supabase.com:5432/postgres"
     )
-    ctx = args["ssl"]
-    assert isinstance(ctx, ssl.SSLContext)
-    assert ctx.verify_mode == ssl.CERT_NONE
+    direct = engine_connect_args(
+        "postgresql+asyncpg://postgres:x@db.example.supabase.co:5432/postgres"
+    )
+    assert pooler["ssl"] == "require"
+    assert direct["ssl"] == "require"
 
 
 def test_password_at_sign_is_encoded_for_sqlalchemy():
