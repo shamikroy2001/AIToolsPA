@@ -42,7 +42,7 @@ This is the **Core Platform** staging release. D2 (Gmail, Telegram, monitors, to
 
 This repo cannot create your Railway / Vercel / Supabase / Clerk / Stripe projects.
 
-1. **Supabase:** new project. SQL editor: create `pa_app` from `infrastructure/supabase/bootstrap.sql` (change the password). Use **direct** or **session** pooler URLs, not transaction pooler if you hit RLS/session issues.
+1. **Supabase:** new project. SQL editor: create `pa_app` from `infrastructure/supabase/bootstrap.sql` (change the password). Use **direct** or **session** pooler URLs, not transaction pooler if you hit RLS/session issues. On Railway set `SUPABASE_URL` plus `SUPABASE_PUBLISHABLE_KEY` and/or `SUPABASE_SECRET_KEY` (`sb_…` keys from Settings → API Keys). Do not put those keys on Vercel. `/health` reports `supabase` as `ok` when the Data API accepts the key. Alembic and RLS still use `DATABASE_URL`.
 2. **Railway API:** leave Root Directory **empty**. Start command `python start_api.py` (overrides any dashboard `uvicorn main:app`). Attach the public `*.up.railway.app` domain to this API service, not the worker. Env from `.env.staging`. `DATABASE_ADMIN_URL` is the postgres role. `DATABASE_URL` is `pa_app`.
 3. **Re-run GRANTs** in the bootstrap file after the first successful migrate.
 4. **Railway Redis** plugin. Copy `REDIS_URL` to API and worker.

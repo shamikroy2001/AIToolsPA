@@ -1,6 +1,6 @@
 from functools import lru_cache
 
-from pydantic import Field, model_validator
+from pydantic import AliasChoices, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.core.dsn import cors_allowlist, parse_cors_origins, to_async_sqlalchemy
@@ -13,6 +13,7 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore",
+        populate_by_name=True,
     )
 
     environment: str = Field(default="development")
@@ -48,8 +49,24 @@ class Settings(BaseSettings):
     ai_retries: int = Field(default=2)
     ai_timeout_seconds: float = Field(default=30.0)
 
-    supabase_url: str | None = None
-    supabase_service_role_key: str | None = None
+    supabase_url: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("SUPABASE_URL", "NEXT_PUBLIC_SUPABASE_URL"),
+    )
+    supabase_publishable_key: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "SUPABASE_PUBLISHABLE_KEY",
+            "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY",
+        ),
+    )
+    supabase_secret_key: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "SUPABASE_SECRET_KEY",
+            "SUPABASE_SERVICE_ROLE_KEY",
+        ),
+    )
 
     gmail_client_id: str | None = None
     gmail_client_secret: str | None = None

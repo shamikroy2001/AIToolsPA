@@ -17,6 +17,7 @@ def test_health():
     assert body["status"] == "ok"
     assert body["service"] == "personal-assistant-api"
     assert body["release"] == "D1-staging"
+    assert body["supabase"] in {"ok", "unconfigured", "error"}
 
 
 def test_api_health_alias():

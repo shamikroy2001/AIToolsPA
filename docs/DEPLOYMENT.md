@@ -12,7 +12,7 @@ cd frontend && npm install && npm run dev
 
 The freeze contract, in/out of scope, and acceptance list live in [STAGING.md](STAGING.md). Env templates: `.env.staging.example` (Railway) and `frontend/.env.example` (Vercel).
 
-1. Supabase Postgres. Create `pa_app`, then let the API run Alembic (`0001`–`0003`). Re-apply GRANTs from `infrastructure/supabase/bootstrap.sql`.
+1. Supabase Postgres. Create `pa_app`, then let the API run Alembic (`0001`–`0003`). Re-apply GRANTs from `infrastructure/supabase/bootstrap.sql`. Railway also needs `SUPABASE_URL` and `sb_publishable_` / `sb_secret_` API keys (server-only).
 2. Railway **API**: leave **Root Directory empty**. Dockerfile at repo root. Start command `python start_api.py` (binds Railway `$PORT` in-process). Health `https://aitoolspa-production-108b.up.railway.app/health`.
 3. Railway **worker**: Dockerfile `Dockerfile.worker`, start `python -m arq app.workers.arq_worker.WorkerSettings`. Do not run Alembic on this service.
 4. Railway Redis; `REDIS_URL` on API and worker. Worker also needs `DATABASE_ADMIN_URL`.
