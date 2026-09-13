@@ -23,7 +23,9 @@ except ImportError:
 
 config = context.config
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # Default fileConfig disables existing loggers (uvicorn.error, app.*),
+    # which hid POST /api/tasks tracebacks on Railway after migrate-on-boot.
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 target_metadata = Base.metadata
 

@@ -8,10 +8,9 @@ import sys
 import threading
 from pathlib import Path
 
-logging.basicConfig(
-    level=os.environ.get("LOG_LEVEL", "INFO"),
-    format="%(levelname)s %(name)s %(message)s",
-)
+from app.core.logging import configure_app_logging
+
+configure_app_logging()
 log = logging.getLogger("start_api")
 
 MIGRATE_WAIT_SECONDS = 20
@@ -43,6 +42,8 @@ def run_migrations() -> None:
         log.info("Alembic upgrade head completed")
     except Exception:
         log.exception("Alembic upgrade failed; API already serving /health")
+    finally:
+        configure_app_logging()
 
 
 def start_migrations(wait_seconds: float = MIGRATE_WAIT_SECONDS) -> None:
@@ -61,6 +62,7 @@ def main() -> int:
 
     port = listen_port()
     start_migrations(wait_seconds=0)
+    configure_app_logging()
     log.info("Starting uvicorn on 0.0.0.0:%s", port)
     uvicorn.run(
         "app.main:app",

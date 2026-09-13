@@ -70,7 +70,9 @@ VALUES (gen_random_uuid(), 'assistant_ask', 5, 1, 20, true)
 ON CONFLICT (task_type) DO UPDATE SET enabled = true, base_credit_cost = 5;
 ```
 
-`AI_GATEWAY_API_KEY` and `AI_GATEWAY_BASE_URL` stay on Railway only. Unhandled errors now return JSON `{"detail": "..."}` with CORS headers and an `app.errors` / `app.assistant` traceback in Railway deploy logs.
+`AI_GATEWAY_API_KEY` and `AI_GATEWAY_BASE_URL` stay on Railway only. Unhandled errors return JSON `{"detail": "..."}` (never Starlette's 21-byte `text/plain` `Internal Server Error`). Tracebacks go to `app.errors` and stderr so Railway deploy logs show them even after Alembic `fileConfig`.
+
+A `POST /api/tasks` 500 with no Python traceback on Railway was caused by Alembic migrate-on-boot calling `logging.config.fileConfig` with `disable_existing_loggers=True` (the default), which silenced `uvicorn.error`. That is now `False`, and `start_api` re-enables app loggers after migrate.
 
 Do not start D2 work until this list is checked off in staging.
 

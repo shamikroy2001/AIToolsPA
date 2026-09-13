@@ -1,3 +1,4 @@
+import logging
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, Request, status
@@ -8,6 +9,8 @@ from app.core.db import admin_session_factory, apply_tenant, app_session_factory
 from app.core.settings import get_settings
 from app.models.user import User
 from app.services.users import UserService
+
+log = logging.getLogger("app.db")
 
 _verifier: TokenVerifier | None = None
 
@@ -60,5 +63,6 @@ async def get_tenant_db(
             yield session
             await session.commit()
         except Exception:
+            log.exception("Tenant session failed user_id=%s", user.id)
             await session.rollback()
             raise

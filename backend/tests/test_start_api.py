@@ -18,6 +18,13 @@ def test_listen_port_invalid_falls_back(monkeypatch):
     assert listen_port() == 8000
 
 
+def test_alembic_env_does_not_disable_existing_loggers():
+    from pathlib import Path
+
+    source = (Path(__file__).resolve().parents[1] / "migrations" / "env.py").read_text()
+    assert "disable_existing_loggers=False" in source
+
+
 def test_start_migrations_does_not_block_when_alembic_hangs(monkeypatch):
     monkeypatch.setattr("start_api.run_migrations", lambda: __import__("time").sleep(30))
     start_migrations(wait_seconds=0.1)

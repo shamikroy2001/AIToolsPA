@@ -1,8 +1,8 @@
-"""Regression: tenant ask must not 500 when the catalog is not writable.
+"""Regression: unhandled errors must be JSON + logged, and ask must not 500.
 
-Staging pa_app has SELECT-only on task_costs. If RLS hides catalog rows,
-ensure_task_costs used to INSERT and raise — FastAPI then returned
-text/plain 500 without CORS (Starlette ServerErrorMiddleware).
+Staging curl of POST /api/tasks returned Starlette's 21-byte text/plain
+`Internal Server Error` with no traceback (Alembic fileConfig disabled
+uvicorn.error). Catalog INSERT as pa_app was a separate ask-path footgun.
 """
 
 from __future__ import annotations
@@ -173,8 +173,12 @@ def test_unhandled_ask_error_is_json_500_with_cors(
     assert saas_client.get("/api/tasks", headers=_auth()).json() == []
 
 
-def test_server_error_middleware_500_is_json_with_cors(saas_client: TestClient):
-    """Exception handlers on Exception run in ServerErrorMiddleware (outside CORS)."""
+def test_unhandled_error_is_json_not_starlette_plaintext(
+    saas_client: TestClient, caplog: pytest.LogCaptureFixture, capsys: pytest.CaptureFixture[str]
+):
+    """Direct curl (no CORS) must not see text/plain Internal Server Error."""
+    import logging
+
     from app.api.deps import set_token_verifier
 
     class BoomVerifier:
@@ -183,17 +187,31 @@ def test_server_error_middleware_500_is_json_with_cors(saas_client: TestClient):
             raise RuntimeError("simulated verifier crash")
 
     set_token_verifier(BoomVerifier())
+    caplog.set_level(logging.ERROR)
     origin = "http://localhost:3000"
-    transport = saas_client._transport
-    previous = getattr(transport, "raise_server_exceptions", True)
-    transport.raise_server_exceptions = False
-    try:
-        response = saas_client.get("/api/me", headers={**_auth(), "Origin": origin})
-    finally:
-        transport.raise_server_exceptions = previous
+    # JsonErrorMiddleware swallows; ServerErrorMiddleware never emits text/plain.
+    response = saas_client.get("/api/me", headers={**_auth(), "Origin": origin})
     assert response.status_code == 500
     assert response.headers.get("content-type", "").startswith("application/json")
+    assert response.content != b"Internal Server Error"
+    assert response.text.strip() != "Internal Server Error"
     assert response.headers.get("access-control-allow-origin") == origin
     body = response.json()
     assert body["detail"] == "Something went wrong. Try again shortly."
     _assert_no_ai_leak(body)
+    combined = caplog.text + capsys.readouterr().err
+    assert "simulated verifier crash" in combined
+    assert "Unhandled error" in combined
+
+
+def test_configure_app_logging_reenables_disabled_loggers():
+    import logging
+
+    from app.core.logging import configure_app_logging
+
+    silenced = logging.getLogger("uvicorn.error")
+    silenced.disabled = True
+    silenced.setLevel(logging.WARNING)
+    configure_app_logging("INFO")
+    assert silenced.disabled is False
+    assert silenced.level <= logging.INFO
