@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 import app.models  # noqa: F401
 from app.api.assistant import router as assistant_router
+from app.api.automation import router as automation_router
 from app.api.billing import router as billing_router
 from app.api.health import router as health_router
 from app.api.me import router as me_router
@@ -99,6 +100,7 @@ app.include_router(me_router)
 app.include_router(billing_router)
 app.include_router(webhook_router)
 app.include_router(assistant_router)
+app.include_router(automation_router)
 
 
 @app.get("/")

@@ -54,3 +54,12 @@ This repo cannot create your Railway / Vercel / Supabase / Clerk / Stripe projec
 10. Confirm CORS: `PUBLIC_APP_URL` and `CORS_ORIGINS` equal the Vercel origin.
 
 Do not start D2 work until this list is checked off in staging.
+
+## D2 Slice 2 (APIs; release stays D1-staging)
+
+Catalog, monitors, schedules, and notifications APIs plus Connections / Monitoring pages.
+
+- No new Railway or Vercel secrets.
+- `POST /api/integrations/gmail/connect` and Telegram connect return 503 until OAuth env exists. Real OAuth is a later slice.
+- Worker registers `poll_due_monitors` as a no-op cron so Arq is proven. Real hash-check polling comes next.
+- Leave `/health` `release` as `D1-staging` until these APIs are proven on staging. Do not enable Stripe.
