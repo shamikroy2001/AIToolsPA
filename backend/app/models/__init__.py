@@ -1,4 +1,5 @@
 from app.models.assistant import AIUsage, AssistantProfile, AssistantTask, TaskCost
+from app.models.automation import Integration, MonitoredWebsite, Notification, ScheduledTask
 from app.models.credit import CreditAccount, CreditLot, CreditTransaction
 from app.models.plan import Plan
 from app.models.stripe_event import StripeEvent
@@ -17,4 +18,8 @@ __all__ = [
     "TaskCost",
     "AssistantTask",
     "AIUsage",
+    "Integration",
+    "MonitoredWebsite",
+    "ScheduledTask",
+    "Notification",
 ]

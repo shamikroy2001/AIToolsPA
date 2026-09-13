@@ -25,7 +25,9 @@ Supabase URLs may be pasted as `postgres://...`; the API rewrites them to `postg
 
 ## D2 staging
 
-Same hosts. Add Google OAuth redirect URLs, Telegram bot token, worker concurrency, admin allowlist. Then production cutover after acceptance.
+Slice 2 (catalog / monitors / schedules / notifications) deploys with existing env. Do not add Google OAuth or Telegram secrets until the OAuth slice. `/health` stays `D1-staging` until those APIs are proven.
+
+Same hosts. Later slices add Google OAuth redirect URLs, Telegram bot token, worker concurrency, admin allowlist. Then production cutover after acceptance.
 
 ## Production
 

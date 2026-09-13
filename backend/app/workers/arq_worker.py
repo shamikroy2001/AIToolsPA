@@ -1,4 +1,4 @@
-"""Arq worker. D1-staging: ping + expire credit lots. Integration jobs are D2."""
+"""Arq worker. D1-staging: ping + expire credit lots + no-op monitor poll."""
 
 from arq.connections import RedisSettings
 from arq import cron
@@ -21,7 +21,15 @@ async def expire_credit_lots(ctx: dict) -> int:
         return expired
 
 
+async def poll_due_monitors(ctx: dict) -> int:
+    """No-op cron so Arq is proven. Real hash-check polling is a later slice."""
+    return 0
+
+
 class WorkerSettings:
-    functions = [ping, expire_credit_lots]
-    cron_jobs = [cron(expire_credit_lots, hour={3}, minute={15})]
+    functions = [ping, expire_credit_lots, poll_due_monitors]
+    cron_jobs = [
+        cron(expire_credit_lots, hour={3}, minute={15}),
+        cron(poll_due_monitors, minute={0, 15, 30, 45}),
+    ]
     redis_settings = RedisSettings.from_dsn(get_settings().redis_url)
