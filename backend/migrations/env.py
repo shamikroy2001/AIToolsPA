@@ -1,9 +1,12 @@
 from logging.config import fileConfig
+import asyncio
 
 from alembic import context
-from sqlalchemy import create_engine, pool
+from sqlalchemy import pool
+from sqlalchemy.ext.asyncio import create_async_engine
 
-from app.core.dsn import sync_connect_args, to_sync_psycopg, with_required_ssl
+from app.core.db import engine_connect_args
+from app.core.dsn import to_async_sqlalchemy, to_sync_psycopg, with_required_ssl
 from app.core.settings import get_settings
 from app.models.base import Base
 from app.models import assistant as _assistant  # noqa: F401
@@ -25,10 +28,13 @@ if config.config_file_name is not None:
 target_metadata = Base.metadata
 
 
-def _sync_admin_url() -> str:
+def _admin_url() -> str:
     settings = get_settings()
-    url = settings.database_admin_url or settings.database_url
-    return with_required_ssl(to_sync_psycopg(url))
+    return settings.database_admin_url or settings.database_url
+
+
+def _sync_admin_url() -> str:
+    return with_required_ssl(to_sync_psycopg(_admin_url()))
 
 
 def run_migrations_offline() -> None:
@@ -42,17 +48,27 @@ def run_migrations_offline() -> None:
         context.run_migrations()
 
 
-def run_migrations_online() -> None:
-    url = _sync_admin_url()
-    connectable = create_engine(
+def do_run_migrations(connection) -> None:
+    context.configure(connection=connection, target_metadata=target_metadata)
+    with context.begin_transaction():
+        context.run_migrations()
+
+
+async def run_async_migrations() -> None:
+    url = to_async_sqlalchemy(_admin_url())
+    connectable = create_async_engine(
         url,
         poolclass=pool.NullPool,
-        connect_args=sync_connect_args(url),
+        connect_args=engine_connect_args(url),
     )
-    with connectable.connect() as connection:
-        context.configure(connection=connection, target_metadata=target_metadata)
-        with context.begin_transaction():
-            context.run_migrations()
+    async with connectable.connect() as connection:
+        await connection.run_sync(do_run_migrations)
+    await connectable.dispose()
+
+
+def run_migrations_online() -> None:
+    """Use asyncpg (same TLS as the API). psycopg never reaches the Supabase pooler."""
+    asyncio.run(run_async_migrations())
 
 
 if context.is_offline_mode():

@@ -22,7 +22,10 @@ log = logging.getLogger("app.main")
 
 
 async def seed_plan_catalog() -> None:
+    from app.core.schema import ensure_core_schema, missing_relation
+
     last_error: Exception | None = None
+    recovered = False
     for attempt in range(12):
         try:
             factory = admin_session_factory()
@@ -32,7 +35,14 @@ async def seed_plan_catalog() -> None:
             return
         except Exception as exc:
             last_error = exc
-            log.warning("Plan seed attempt %s failed; retrying", attempt + 1)
+            log.warning("Plan seed attempt %s failed: %s", attempt + 1, exc)
+            if not recovered and missing_relation(exc):
+                try:
+                    await ensure_core_schema()
+                    recovered = True
+                    continue
+                except Exception:
+                    log.exception("asyncpg schema create failed")
             await asyncio.sleep(2)
     log.exception("Plan seed failed; serving /health without catalog seed", exc_info=last_error)
 

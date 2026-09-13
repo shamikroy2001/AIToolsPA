@@ -3,6 +3,7 @@
 from sqlalchemy.engine.url import make_url
 
 from app.core.db import engine_connect_args
+from app.core.schema import missing_relation
 from app.core.dsn import (
     cors_allowlist,
     describe_database_url,
@@ -81,17 +82,17 @@ def test_supabase_hosts_use_require_ssl():
     assert direct["ssl"] == "require"
 
 
-def test_alembic_sync_args_skip_cert_verify():
-    import ssl
+def test_missing_relation_detects_undefined_table():
+    assert missing_relation(Exception('relation "plans" does not exist'))
+    assert missing_relation(Exception("asyncpg.exceptions.UndefinedTableError"))
+    assert missing_relation(Exception("connection refused")) is False
 
+
+def test_alembic_sync_args_only_set_timeout():
     args = sync_connect_args(
         "postgresql+psycopg://postgres.proj:x@aws-0-ca-central-1.pooler.supabase.com:5432/postgres"
     )
-    assert args["connect_timeout"] == 15
-    assert "sslmode" not in args
-    ctx = args["ssl"]
-    assert isinstance(ctx, ssl.SSLContext)
-    assert ctx.verify_mode == ssl.CERT_NONE
+    assert args == {"connect_timeout": 15}
 
 
 def test_password_at_sign_is_encoded_for_sqlalchemy():

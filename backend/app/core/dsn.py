@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import ssl
 from urllib.parse import parse_qsl, quote, unquote, urlencode, urlparse, urlunparse
 
 
@@ -99,14 +98,8 @@ def postgres_ssl_setting(url: str) -> str:
 
 
 def sync_connect_args(url: str) -> dict:
-    """psycopg/Alembic connect_args. Do not pass sslmode as a kwarg."""
-    args: dict = {"connect_timeout": 15}
-    if needs_ssl(url):
-        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-        ctx.check_hostname = False
-        ctx.verify_mode = ssl.CERT_NONE
-        args["ssl"] = ctx
-    return args
+    """psycopg/Alembic connect_args. sslmode stays in the URL, not as a kwarg."""
+    return {"connect_timeout": 15}
 
 
 def with_required_ssl(url: str) -> str:

@@ -73,6 +73,10 @@ def get_app_engine() -> AsyncEngine | None:
     return _app_engine
 
 
+def get_admin_engine() -> AsyncEngine | None:
+    return _admin_engine
+
+
 def app_session_factory() -> async_sessionmaker[AsyncSession]:
     if _AppSession is None:
         init_engines_from_settings()
