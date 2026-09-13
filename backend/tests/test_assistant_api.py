@@ -42,6 +42,32 @@ def _assert_no_ai_leak(payload: object) -> None:
         assert forbidden not in text
 
 
+def test_profile_and_ask_survive_profile_read_failure(
+    saas_client: TestClient, monkeypatch
+):
+    """GET /api/me/assistant and POST /api/tasks must not 500 if profile SELECT fails."""
+    from app.services.assistant import AssistantService
+
+    async def boom(self, user_id):
+        del self, user_id
+        raise RuntimeError("rls or schema mismatch on assistant_profiles")
+
+    monkeypatch.setattr(AssistantService, "get_profile", boom)
+    profile = saas_client.get("/api/me/assistant", headers=_auth())
+    assert profile.status_code == 200
+    assert profile.json()["assistant_name"] == "Assistant"
+    me = saas_client.get("/api/me", headers=_auth()).json()
+    _allocate_pro(saas_client, me["id"], "evt_profile_read")
+    asked = saas_client.post(
+        "/api/tasks",
+        json={"message": "Hello"},
+        headers=_auth(),
+    )
+    assert asked.status_code == 200
+    assert asked.json()["credits_charged"] == 5
+    _assert_no_ai_leak(asked.json())
+
+
 def test_profile_defaults_and_update(saas_client: TestClient):
     created = saas_client.get("/api/me/assistant", headers=_auth())
     assert created.status_code == 200

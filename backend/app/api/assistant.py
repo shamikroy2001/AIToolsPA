@@ -83,7 +83,7 @@ async def update_assistant(
 async def create_task(
     body: AskRequest,
     user: Annotated[User, Depends(get_current_user)],
-    session: Annotated[AsyncSession, Depends(get_tenant_db)],
+    session: Annotated[AsyncSession, Depends(get_admin_db)],
 ) -> TaskPublic:
     try:
         task = await _service(session).ask(user, body.message)

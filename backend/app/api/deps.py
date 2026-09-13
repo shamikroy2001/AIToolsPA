@@ -68,14 +68,24 @@ async def get_tenant_db(
             raise
 
 
-async def get_admin_db() -> AsyncSession:
-    """Postgres/admin role. Use for user-scoped catalog rows that pa_app cannot insert."""
+async def get_admin_db(
+    user: Annotated[User, Depends(get_current_user)],
+) -> AsyncSession:
+    """Admin/postgres role with ``app.user_id`` set.
+
+    ``FORCE ROW LEVEL SECURITY`` applies to table owners. A profile/task
+    INSERT without ``app.user_id`` fails ``WITH CHECK`` unless the role
+    has ``BYPASSRLS`` (superuser). ``GET /api/me`` works because that
+    upsert uses this engine as a superuser; assistant tables still need
+    the GUC when the admin role is not a superuser.
+    """
     factory = admin_session_factory()
     async with factory() as session:
+        await apply_tenant(session, user.id)
         try:
             yield session
             await session.commit()
         except Exception:
-            log.exception("Admin session failed")
+            log.exception("Admin session failed user_id=%s", user.id)
             await session.rollback()
             raise

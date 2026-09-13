@@ -168,16 +168,69 @@ def test_provider_crash_is_json_503_with_cors(saas_client: TestClient):
     set_ai_provider(FakeAIProvider())
 
 
+@pytest.mark.asyncio
+async def test_get_or_create_profile_returns_defaults_when_insert_denied(
+    ask_session: AsyncSession,
+):
+    user = await _user_with_credits(ask_session)
+    original_add = ask_session.add
+
+    def deny_profile_writes(obj) -> None:
+        if isinstance(obj, AssistantProfile):
+            raise RuntimeError("permission denied for table assistant_profiles")
+        original_add(obj)
+
+    ask_session.add = deny_profile_writes  # type: ignore[method-assign]
+    service = AssistantService(ask_session, FakeAIProvider())
+    profile = await service.get_or_create_profile(user.id)
+    assert profile.assistant_name == "Assistant"
+    assert profile.user_id == user.id
+    assert profile.timezone == "UTC"
+
+
+def test_assistant_profile_model_matches_alembic_0003():
+    """Alembic 0003 created timestamptz + a timezone column; the ORM must match."""
+    from sqlalchemy.dialects import postgresql
+    from sqlalchemy.schema import CreateTable
+
+    cols = set(AssistantProfile.__table__.c.keys())
+    assert cols == {
+        "id",
+        "user_id",
+        "assistant_name",
+        "personality",
+        "response_style",
+        "timezone",
+        "language",
+        "created_at",
+        "updated_at",
+    }
+    assert AssistantProfile.__table__.c.timezone.name == "timezone"
+    ddl = str(CreateTable(AssistantProfile.__table__).compile(dialect=postgresql.dialect()))
+    assert "TIMESTAMP WITH TIME ZONE" in ddl
+    assert '"timezone"' in ddl
+
+
+def test_get_admin_db_sets_tenant_guc():
+    import inspect
+
+    from app.api.deps import get_admin_db
+
+    source = inspect.getsource(get_admin_db)
+    assert "apply_tenant" in source
+    assert "get_current_user" in source
+
+
 def test_unhandled_ask_error_is_json_500_with_cors(
     saas_client: TestClient, monkeypatch: pytest.MonkeyPatch
 ):
     from app.services.assistant import AssistantService
 
-    async def boom(self, user_id):
-        del self, user_id
-        raise RuntimeError("simulated profile failure")
+    async def boom(self, task_type):
+        del self, task_type
+        raise RuntimeError("simulated cost failure")
 
-    monkeypatch.setattr(AssistantService, "get_profile", boom)
+    monkeypatch.setattr(AssistantService, "estimate_cost", boom)
     me = saas_client.get("/api/me", headers=_auth()).json()
     _allocate_pro(saas_client, me["id"], "evt_unhandled")
     origin = "http://localhost:3000"

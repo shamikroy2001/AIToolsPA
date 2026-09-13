@@ -55,9 +55,12 @@ This repo cannot create your Railway / Vercel / Supabase / Clerk / Stripe projec
 
 ### GET /api/me/assistant and POST /api/tasks 500 while D2 GETs work
 
-Those two routes create `assistant_profiles`. D2 list endpoints only SELECT. If RLS is on `assistant_profiles` without `{table}_tenant`, tenant INSERT fails and both routes 500. The API now upserts the profile with the **admin** role (same as `users`) and ask no longer requires a tenant profile insert.
+Those two routes used to `INSERT assistant_profiles` as `pa_app`. D2 list endpoints and `GET /api/credits` only SELECT (credits were already provisioned). Two independent failures show up the same way:
 
-Optional paste: `infrastructure/supabase/assistant_rls.sql` (or Alembic `0006_assistant_profile_rls`).
+1. **Schema vs model.** Alembic `0003` created `created_at` / `updated_at` as `timestamptz`. The ORM used naive `DateTime` + aware `utc_now()` — the same asyncpg bind error that previously broke `users` / `plans`. The model now uses `DateTime(timezone=True)`. The `timezone` column is quoted.
+2. **RLS.** `ENABLE` + `FORCE ROW LEVEL SECURITY` without `{table}_tenant` (or without `app.user_id` on the admin role when it is not a superuser) denies INSERT. Profile GET/PATCH and ask now use the **admin** engine **and** `set_config('app.user_id', ...)`. Ask does not require a profile row.
+
+Optional paste: `infrastructure/supabase/assistant_rls.sql` (or Alembic `0006_assistant_profile_rls`). Clerk session JWTs from this app expire in ~60 seconds — mint a fresh token immediately before a live curl.
 
 ### POST /api/tasks 500 while /api/me and /api/credits work
 

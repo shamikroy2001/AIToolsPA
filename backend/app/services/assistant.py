@@ -18,6 +18,11 @@ from app.services.credits import CreditService, InsufficientCredits
 log = logging.getLogger("app.assistant")
 
 DEFAULT_ASK_COST = 5
+DEFAULT_ASSISTANT_NAME = "Assistant"
+DEFAULT_PERSONALITY = "Helpful and concise"
+DEFAULT_RESPONSE_STYLE = "clear"
+DEFAULT_LANGUAGE = "en"
+DEFAULT_TIMEZONE = "UTC"
 
 DEFAULT_TASK_COSTS = (
     {
@@ -49,6 +54,18 @@ DEFAULT_TASK_COSTS = (
         "enabled": True,
     },
 )
+
+
+def _unsaved_default_profile(user_id: UUID) -> AssistantProfile:
+    """Explicit fields — SQLAlchemy ``default=`` is applied on flush, not construct."""
+    return AssistantProfile(
+        user_id=user_id,
+        assistant_name=DEFAULT_ASSISTANT_NAME,
+        personality=DEFAULT_PERSONALITY,
+        response_style=DEFAULT_RESPONSE_STYLE,
+        timezone=DEFAULT_TIMEZONE,
+        language=DEFAULT_LANGUAGE,
+    )
 
 
 def default_task_cost(task_type: str) -> int:
@@ -90,18 +107,43 @@ class AssistantService:
         )
 
     async def get_or_create_profile(self, user_id: UUID) -> AssistantProfile:
-        """Persist via an admin session. Tenant (pa_app) INSERT may be denied by RLS."""
-        profile = await self.get_profile(user_id)
-        if profile is None:
-            profile = AssistantProfile(user_id=user_id)
+        """Read, then INSERT. Callers should use an admin session with app.user_id.
+
+        Tenant (pa_app) INSERT is denied when RLS is on without ``{table}_tenant``.
+        A persist failure must not 500 GET /api/me/assistant — return defaults.
+        """
+        try:
+            profile = await self.get_profile(user_id)
+        except Exception:
+            log.warning("assistant profile read failed user_id=%s", user_id, exc_info=True)
+            profile = None
+        if profile is not None:
+            return profile
+        profile = _unsaved_default_profile(user_id)
+        try:
             self._session.add(profile)
             await self._session.flush()
+        except Exception:
+            log.exception(
+                "assistant profile persist failed user_id=%s; returning defaults",
+                user_id,
+            )
+            try:
+                await self._session.rollback()
+            except Exception:
+                log.exception("assistant profile session rollback failed")
+            return _unsaved_default_profile(user_id)
         return profile
 
     @staticmethod
     def prompt_bits(profile: AssistantProfile | None) -> tuple[str, str, str, str]:
         if profile is None:
-            return "Assistant", "Helpful and concise", "clear", "en"
+            return (
+                DEFAULT_ASSISTANT_NAME,
+                DEFAULT_PERSONALITY,
+                DEFAULT_RESPONSE_STYLE,
+                DEFAULT_LANGUAGE,
+            )
         return (
             profile.assistant_name,
             profile.personality,
@@ -165,7 +207,14 @@ class AssistantService:
         message = message.strip()
         if not message:
             raise ValueError("Message is required")
-        profile = await self.get_profile(user.id)
+        try:
+            profile = await self.get_profile(user.id)
+        except Exception:
+            log.warning(
+                "assistant profile read failed; using in-memory defaults",
+                exc_info=True,
+            )
+            profile = None
         name, personality, style, language = self.prompt_bits(profile)
         cost = await self.estimate_cost("assistant_ask")
         task = AssistantTask(

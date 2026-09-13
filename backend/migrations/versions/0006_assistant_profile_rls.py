@@ -1,8 +1,9 @@
 """Repair assistant_profiles / tasks / ai_usage RLS + GRANTs.
 
-GET /api/me/assistant and POST /api/tasks both write assistant_profiles.
-If RLS is enabled without the tenant policy (or pa_app lacks INSERT),
-those routes 500 while D2 SELECTs still work.
+Staging GET /api/me/assistant and POST /api/tasks 500'd while D2 SELECTs
+worked. Causes: timestamptz vs naive ORM DateTime, and ENABLE/FORCE RLS
+without {table}_tenant (INSERT WITH CHECK fails). The API upserts via
+admin + app.user_id; this migration restores the tenant policy + GRANTs.
 
 Revision ID: 0006_assistant_profile_rls
 Revises: 0005_catalog_rls
