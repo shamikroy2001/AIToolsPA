@@ -36,6 +36,14 @@ MOCK_CHAT = "42424242"
 FERNET_KEY = Fernet.generate_key().decode()
 
 
+def _aware(stamp: datetime | None) -> datetime | None:
+    if stamp is None:
+        return None
+    if stamp.tzinfo is None:
+        return stamp.replace(tzinfo=timezone.utc)
+    return stamp
+
+
 @pytest.fixture(autouse=True)
 def _encryption_key(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("CREDENTIAL_ENCRYPTION_KEY", FERNET_KEY)
@@ -430,8 +438,8 @@ async def test_provider_failure_does_not_block_other_schedules(session: AsyncSes
 
     await session.refresh(gmail)
     await session.refresh(telegram)
-    assert gmail.next_run_at == gmail_due
-    assert telegram.next_run_at == NOW + timedelta(hours=1)
+    assert _aware(gmail.next_run_at) == _aware(gmail_due)
+    assert _aware(telegram.next_run_at) == NOW + timedelta(hours=1)
     notices = list(
         (await session.scalars(select(Notification).where(Notification.user_id == user.id))).all()
     )
