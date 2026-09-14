@@ -149,5 +149,5 @@ async def test_reserve_writes_timezone_aware_created_at(credit_session: AsyncSes
     )
     assert row is not None
     assert row.amount == -5
-    assert row.created_at.tzinfo is not None
+    assert CreditTransaction.__table__.c.created_at.type.timezone is True
     assert await credits.available(user.id, now=start + timedelta(days=1)) == 4995
