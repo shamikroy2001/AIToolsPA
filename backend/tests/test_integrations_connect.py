@@ -294,7 +294,8 @@ def test_telegram_rejects_bot_token_as_chat_id(saas_client: TestClient, monkeypa
         json={"bot_token": MOCK_BOT},
         headers=_auth(),
     )
-    assert extra.status_code == 422
+    assert extra.status_code == 400
+    assert "credential" in extra.json()["detail"].lower()
     _assert_no_secrets(extra.json())
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
     monkeypatch.delenv("CREDENTIAL_ENCRYPTION_KEY", raising=False)

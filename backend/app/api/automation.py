@@ -13,6 +13,7 @@ from app.core.settings import get_settings
 from app.models.user import User
 from app.schemas.automation import (
     ALLOWED_PROVIDERS,
+    FORBIDDEN_PAYLOAD_KEYS,
     IntegrationConnectBody,
     IntegrationPublic,
     MonitorCreate,
@@ -70,17 +71,40 @@ def _frontend_integrations(query: str) -> str:
     return f"{get_settings().public_app_url.rstrip('/')}/integrations?{query}"
 
 
+async def _connect_body(request: Request) -> IntegrationConnectBody:
+    """Parse connect JSON without echoing tokens if a secret key is posted."""
+    if request.headers.get("content-type", "").split(";")[0].strip().lower() != "application/json":
+        return IntegrationConnectBody()
+    try:
+        raw = await request.json()
+    except Exception:
+        return IntegrationConnectBody()
+    if raw in (None, ""):
+        return IntegrationConnectBody()
+    if not isinstance(raw, dict):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid connect payload")
+    lowered = {str(key).lower() for key in raw}
+    if lowered & FORBIDDEN_PAYLOAD_KEYS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Request must not include credentials",
+        )
+    try:
+        return IntegrationConnectBody.model_validate(raw)
+    except Exception:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid connect payload") from None
+
+
 @router.post("/integrations/{provider}/connect", response_model=IntegrationPublic)
 async def connect_integration(
     provider: str,
     request: Request,
     user: Annotated[User, Depends(get_current_user)],
     session: Annotated[AsyncSession, Depends(get_tenant_db)],
-    body: IntegrationConnectBody | None = None,
 ) -> IntegrationPublic:
     if provider not in ALLOWED_PROVIDERS:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown integration")
-    payload = body or IntegrationConnectBody()
+    payload = await _connect_body(request)
     try:
         return await IntegrationService(session).connect(
             user.id,
