@@ -4,7 +4,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.models.base import Base, utc_now
+from app.models.base import Base, aware_timestamp
 
 
 class StripeEvent(Base):
@@ -14,4 +14,4 @@ class StripeEvent(Base):
     event_id: Mapped[str] = mapped_column(String(255), unique=True, index=True)
     event_type: Mapped[str] = mapped_column(String(128))
     payload: Mapped[str | None] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(default=utc_now)
+    created_at: Mapped[datetime] = aware_timestamp()

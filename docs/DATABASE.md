@@ -13,7 +13,7 @@ Planned tables (D1 unless noted):
 - `assistant_profiles` — name, personality, response_style, timezone (quoted), language; `timestamptz` created/updated. `GET /api/me/assistant` is read-only (defaults if missing). PATCH upserts with the admin role **and** `app.user_id`. Tenant ask does not INSERT this row.
 - `credit_accounts` — period bounds, allowance, rollover_cap snapshot
 - `credit_lots` — source, original/remaining, expires_at, billing_period
-- `credit_transactions` — immutable ledger; types include MONTHLY_ALLOCATION, ROLLOVER, AI_USAGE, TOPUP (D2), REFUND, ADMIN_ADJUSTMENT, EXPIRATION, RESERVATION, RELEASE
+- `credit_transactions` — immutable ledger (`timestamptz` created_at; ORM must bind aware datetimes — naive `DateTime` 503s ask on reserve). Types include MONTHLY_ALLOCATION, ROLLOVER, AI_USAGE, TOPUP (D2), REFUND, ADMIN_ADJUSTMENT, EXPIRATION, RESERVATION, RELEASE
 - `assistant_tasks` — type, status, input/output, credits reserved/charged
 - `ai_usage` — provider, model, tokens, actual_cost (admin-only; never customer APIs)
 - `stripe_events` — webhook idempotency keys

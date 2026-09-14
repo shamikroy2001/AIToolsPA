@@ -4,7 +4,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import DateTime, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.models.base import Base, utc_now
+from app.models.base import Base, aware_timestamp
 
 
 class Subscription(Base):
@@ -19,5 +19,5 @@ class Subscription(Base):
     status: Mapped[str] = mapped_column(String(32), default="incomplete")
     current_period_start: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     current_period_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    created_at: Mapped[datetime] = mapped_column(default=utc_now)
-    updated_at: Mapped[datetime] = mapped_column(default=utc_now, onupdate=utc_now)
+    created_at: Mapped[datetime] = aware_timestamp()
+    updated_at: Mapped[datetime] = aware_timestamp(onupdate=True)
