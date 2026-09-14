@@ -25,7 +25,7 @@ Supabase URLs may be pasted as `postgres://...`; the API rewrites them to `postg
 
 ## D2 staging
 
-Slice 2 (catalog / monitors / schedules / notifications) deploys with existing env. Slice 3 adds real Arq monitor polling. Do not add Google OAuth or Telegram secrets until the OAuth slice. `/health` stays `D1-staging` until the operator accepts a D2 release label.
+Slice 2 (catalog / monitors / schedules / notifications) deploys with existing env. Slice 3 adds real Arq monitor polling. Slice 4 adds Gmail/Telegram connect when optional env is set; without it, connect stays 503. `/health` stays `D1-staging` until the operator accepts a D2 release label.
 
 **Railway worker (required for Slice 3 polling):** the `dazzling-transformation` project currently has the API service only. Add a worker service when you want checks to run in staging:
 
@@ -33,11 +33,19 @@ Slice 2 (catalog / monitors / schedules / notifications) deploys with existing e
 2. Dockerfile path: `Dockerfile.worker`.
 3. Start command: `python -m arq app.workers.arq_worker.WorkerSettings` (also in `railway.worker.toml`).
 4. Env: `REDIS_URL` (same as API), `DATABASE_ADMIN_URL` (postgres/service role), `DATABASE_URL` (`pa_app` is fine if present). Do **not** run Alembic here.
-5. No `GMAIL_*` or `TELEGRAM_*` variables.
+5. Worker does not need `GMAIL_*` or `TELEGRAM_*` (those jobs are still skipped).
 
 Cron on the worker: `expire_credit_lots` daily at 03:15 UTC; `poll_due_monitors` at minute 0/15/30/45.
 
-Same hosts. Later slices add Google OAuth redirect URLs, Telegram bot token, worker concurrency, admin allowlist. Then production cutover after acceptance.
+**Slice 4 operator (API service only, optional):**
+
+1. Create a Google OAuth **Web** client. Authorized redirect URI: `https://aitoolspa-production-108b.up.railway.app/api/integrations/gmail/callback` (or your current Railway API host). Scope used by the app: `gmail.readonly` + `openid` + `email` (no send/modify).
+2. Railway API: `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET`, `GMAIL_REDIRECT_URI` (same callback URL), `CREDENTIAL_ENCRYPTION_KEY` (Fernet), optional `PUBLIC_API_URL`.
+3. Telegram: create a bot with BotFather; set `TELEGRAM_BOT_TOKEN` on the API. Customers connect with their chat ID. The bot token never goes to the browser.
+4. Leave values empty to keep connect paused (503). Never put these on Vercel or in the repo.
+5. Stripe stays dormant. Do not invent a production Clerk/Stripe cutover.
+
+Same hosts. Later slices can run stored Gmail/Telegram jobs, worker concurrency, and an admin allowlist. Then production cutover after acceptance.
 
 ## Production
 

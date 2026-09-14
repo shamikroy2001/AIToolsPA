@@ -3,13 +3,18 @@ from __future__ import annotations
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, get_tenant_db
+from app.core.db import admin_session_factory, apply_tenant
+from app.core.settings import get_settings
 from app.models.user import User
 from app.schemas.automation import (
     ALLOWED_PROVIDERS,
+    FORBIDDEN_PAYLOAD_KEYS,
+    IntegrationConnectBody,
     IntegrationPublic,
     MonitorCreate,
     MonitorPublic,
@@ -20,6 +25,7 @@ from app.schemas.automation import (
     ScheduleUpdate,
 )
 from app.services.automation import (
+    IntegrationBadRequest,
     IntegrationService,
     IntegrationUnavailable,
     NotificationService,
@@ -27,6 +33,7 @@ from app.services.automation import (
     WebsiteMonitorService,
     schedule_public_payload,
 )
+from app.services.gmail import GmailOAuthError, decode_oauth_state, gmail_redirect_uri
 
 router = APIRouter(prefix="/api", tags=["automation"])
 
@@ -51,25 +58,95 @@ async def list_integrations(
     return await IntegrationService(session).catalog(user.id)
 
 
+def _integration_http_error(exc: IntegrationUnavailable | IntegrationBadRequest) -> HTTPException:
+    code = (
+        status.HTTP_503_SERVICE_UNAVAILABLE
+        if isinstance(exc, IntegrationUnavailable)
+        else status.HTTP_400_BAD_REQUEST
+    )
+    return HTTPException(status_code=code, detail=exc.detail)
+
+
+def _frontend_integrations(query: str) -> str:
+    return f"{get_settings().public_app_url.rstrip('/')}/integrations?{query}"
+
+
+async def _connect_body(request: Request) -> IntegrationConnectBody:
+    """Parse connect JSON without echoing tokens if a secret key is posted."""
+    if request.headers.get("content-type", "").split(";")[0].strip().lower() != "application/json":
+        return IntegrationConnectBody()
+    try:
+        raw = await request.json()
+    except Exception:
+        return IntegrationConnectBody()
+    if raw in (None, ""):
+        return IntegrationConnectBody()
+    if not isinstance(raw, dict):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid connect payload")
+    lowered = {str(key).lower() for key in raw}
+    if lowered & FORBIDDEN_PAYLOAD_KEYS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Request must not include credentials",
+        )
+    try:
+        return IntegrationConnectBody.model_validate(raw)
+    except Exception:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid connect payload") from None
+
+
 @router.post("/integrations/{provider}/connect", response_model=IntegrationPublic)
 async def connect_integration(
     provider: str,
+    request: Request,
     user: Annotated[User, Depends(get_current_user)],
     session: Annotated[AsyncSession, Depends(get_tenant_db)],
 ) -> IntegrationPublic:
     if provider not in ALLOWED_PROVIDERS:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown integration")
+    payload = await _connect_body(request)
     try:
-        await IntegrationService(session).connect(user.id, provider)
-    except IntegrationUnavailable as exc:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=exc.detail,
-        ) from exc
-    raise HTTPException(
-        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-        detail="Connection is not available yet.",
-    )
+        return await IntegrationService(session).connect(
+            user.id,
+            provider,
+            redirect_uri=gmail_redirect_uri(request),
+            code=payload.code,
+            state=payload.state,
+            chat_id=payload.chat_id,
+        )
+    except (IntegrationUnavailable, IntegrationBadRequest) as exc:
+        raise _integration_http_error(exc) from exc
+
+
+@router.get("/integrations/gmail/callback")
+async def gmail_oauth_callback(
+    request: Request,
+    code: str | None = None,
+    state: str | None = None,
+    error: str | None = None,
+) -> RedirectResponse:
+    """Google OAuth redirect. Anonymous; user is bound by the signed state."""
+    if error or not code or not state:
+        return RedirectResponse(_frontend_integrations("gmail=error"), status_code=302)
+    try:
+        user_id = decode_oauth_state(state)
+    except (GmailOAuthError, IntegrationUnavailable) as exc:
+        del exc
+        return RedirectResponse(_frontend_integrations("gmail=error"), status_code=302)
+    factory = admin_session_factory()
+    try:
+        async with factory() as session:
+            await apply_tenant(session, user_id)
+            await IntegrationService(session).complete_gmail(
+                user_id,
+                code=code,
+                state=state,
+                redirect_uri=gmail_redirect_uri(request),
+            )
+            await session.commit()
+    except (IntegrationUnavailable, IntegrationBadRequest, GmailOAuthError):
+        return RedirectResponse(_frontend_integrations("gmail=error"), status_code=302)
+    return RedirectResponse(_frontend_integrations("gmail=connected"), status_code=302)
 
 
 @router.post("/integrations/{provider}/disconnect", response_model=IntegrationPublic)
@@ -80,7 +157,10 @@ async def disconnect_integration(
 ) -> IntegrationPublic:
     if provider not in ALLOWED_PROVIDERS:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown integration")
-    return await IntegrationService(session).disconnect(user.id, provider)
+    try:
+        return await IntegrationService(session).disconnect(user.id, provider)
+    except (IntegrationUnavailable, IntegrationBadRequest) as exc:
+        raise _integration_http_error(exc) from exc
 
 
 @router.get("/monitors", response_model=list[MonitorPublic])

@@ -1,4 +1,7 @@
-"""Arq worker. Credit lot expiry + website monitor hash-check. No OAuth secrets."""
+"""Arq worker. Credit lot expiry + website monitor hash-check.
+
+Gmail/Telegram schedules stay skipped; stored integration tokens are unused here.
+"""
 
 from arq.connections import RedisSettings
 from arq import cron

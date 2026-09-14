@@ -32,6 +32,42 @@ class IntegrationPublic(BaseModel):
     name: str
     description: str
     status: str
+    account_label: str | None = None
+    authorize_url: str | None = None
+
+    @field_validator("account_label")
+    @classmethod
+    def account_label_not_secret(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        lowered = value.lower()
+        for needle in (
+            "refresh_token",
+            "access_token",
+            "ya29.",
+            "bot_token",
+            "client_secret",
+            "encrypted_credentials",
+        ):
+            if needle in lowered:
+                return None
+        return value
+
+
+class IntegrationConnectBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    code: str | None = Field(default=None, max_length=2048)
+    state: str | None = Field(default=None, max_length=4096)
+    chat_id: str | None = Field(default=None, max_length=64)
+
+    @field_validator("chat_id")
+    @classmethod
+    def clean_chat_id(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        cleaned = value.strip()
+        return cleaned or None
 
 
 class MonitorCreate(BaseModel):
