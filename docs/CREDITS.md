@@ -28,6 +28,14 @@ Rollover lots expire after 90 days (configurable).
 
 Catalog cost is 3 credits (min 1, max 15). The Arq worker charges after a successful HTTP GET. Unchanged pages still consume credits. If the customer has fewer credits than the cost, that monitor is skipped for the tick (fail soft; no fetch, no notification) and is retried when credits are available. Fetch errors are not charged.
 
+### Gmail analyze (`gmail_analyze`)
+
+Catalog cost is 8 credits (min 2, max 40). The Arq worker charges after a successful read-only Gmail list. Missing/disconnected Gmail, insufficient credits, or Google errors skip that schedule (no charge, `next_run_at` unchanged).
+
+### Telegram notify (`telegram_notify`)
+
+Catalog cost is 1 credit (min 1, max 5). Charged after a successful bot `sendMessage` to the stored chat id. Same fail-soft skip rules as Gmail.
+
 ## Reservation (expensive tasks)
 
 Estimate → reserve (row lock) → execute → charge actual → release unused. Concurrent tests are required in D1 for the assistant-ask path.

@@ -161,3 +161,26 @@ Disconnect clears the row and, for Gmail, best-effort revokes the refresh token.
 - Worker still **skips** `gmail_analyze` / `telegram_notify` schedules (same as Slice 3).
 - Do not enable Stripe. Do not change `/health` `release` from `D1-staging`.
 - Do not add Google/Telegram secrets to the frontend or the git repo.
+
+## D2 Slice 5 (Gmail + Telegram schedule jobs; release stays D1-staging)
+
+Due `scheduled_tasks` for `gmail_analyze` and `telegram_notify` now run on the existing `poll_due_monitors` cron (minute 0/15/30/45). Tokens stay Fernet-encrypted and are decrypted only in the worker/service layer.
+
+- **gmail_analyze:** requires a connected Gmail row. Decrypts tokens, refreshes the access token when Google returns 401, lists recent mail with `gmail.readonly` (query defaults from cadence: hourly `newer_than:1h`, daily `newer_than:1d`, weekly `newer_than:7d`; optional payload `query` / `max_results`). Writes an `in_app` notification with subjects only (no bodies, no tokens). Charges `task_costs.gmail_analyze` (base 8) after a successful read, then advances `next_run_at`.
+- **telegram_notify:** requires a connected Telegram row. Decrypts `chat_id`, sends via `sendMessage` using the **server** bot token (payload `message` / `body` / `text`, or a default reminder). Also writes an `in_app` copy without the chat id. Charges `task_costs.telegram_notify` (base 1) after a successful send, then advances `next_run_at`.
+- **Fail soft (same idea as Slice 3 monitors):** missing/disconnected integration, insufficient credits, or provider errors skip that schedule (`next_run_at` unchanged) and continue other due work. Credits are not charged on skip.
+- **assistant_ask** schedules stay skipped (AI unused here) and remain due.
+- **Tenancy:** admin session lists due rows; each write sets `app.user_id` before mutating that user's credits/notifications/integration/schedule.
+
+### Railway worker env (required for these jobs)
+
+Copy the **same** values already on the API. Do not invent keys. Do not put them on Vercel.
+
+| Variable | Why the worker needs it |
+|---|---|
+| `CREDENTIAL_ENCRYPTION_KEY` | Decrypt `integrations.encrypted_credentials` (must match the API key) |
+| `GMAIL_CLIENT_ID` / `GMAIL_CLIENT_SECRET` | Refresh Gmail access tokens |
+| `TELEGRAM_BOT_TOKEN` | `sendMessage` to the stored chat id |
+| `REDIS_URL` / `DATABASE_ADMIN_URL` | Already required for Slice 3 |
+
+`GMAIL_REDIRECT_URI` stays API-only (OAuth callback). Leave `/health` `release` as `D1-staging`. Do not enable Stripe.

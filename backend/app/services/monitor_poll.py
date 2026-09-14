@@ -1,6 +1,6 @@
 """Website monitor hash-check + due schedule handling for the Arq worker.
 
-No Gmail/Telegram OAuth. Tokens and credentials never appear in notifications.
+Gmail/Telegram credentials are decrypted only in the schedule job layer.
 """
 
 from __future__ import annotations
@@ -19,6 +19,16 @@ from app.models.assistant import TaskCost
 from app.models.automation import MonitoredWebsite, ScheduledTask
 from app.services.automation import NotificationService, next_run_for
 from app.services.credits import CreditService, InsufficientCredits
+from app.services.schedule_jobs import (
+    ASSISTANT_TASK_TYPE,
+    GMAIL_TASK_TYPE,
+    TELEGRAM_TASK_TYPE,
+    GmailAnalyzeFn,
+    ScheduleRunResult,
+    TelegramSendFn,
+    run_gmail_analyze,
+    run_telegram_notify,
+)
 
 log = logging.getLogger("app.monitors")
 
@@ -28,10 +38,6 @@ MONITOR_STALE_AFTER = timedelta(minutes=15)
 MONITOR_TIMEOUT = httpx.Timeout(10.0, connect=5.0)
 MONITOR_MAX_BODY_BYTES = 1_000_000
 MONITOR_USER_AGENT = "AIToolsPA-Monitor/1.0"
-
-CREDENTIAL_GATED_TASK_TYPES = frozenset({"gmail_analyze", "telegram_notify"})
-# Assistant schedules are OAuth-free but AI is unused for this slice.
-UNIMPLEMENTED_TASK_TYPES = frozenset({"assistant_ask"})
 
 FetchFn = Callable[[str], Awaitable[bytes | None]]
 
@@ -213,29 +219,37 @@ async def process_scheduled_task(
     task: ScheduledTask,
     *,
     now: datetime | None = None,
-) -> bool:
-    """Advance OAuth-free website_monitor schedules; skip credential-gated types.
+    gmail_analyze: GmailAnalyzeFn | None = None,
+    telegram_send: TelegramSendFn | None = None,
+) -> ScheduleRunResult:
+    """Run due Gmail/Telegram jobs; bump website_monitor; skip assistant_ask.
 
-    ``gmail_analyze`` and ``telegram_notify`` stay due even after Slice 4
-    connect/disconnect stores credentials. ``assistant_ask`` is also left
-    in place (AI unused here).
-    Website monitor *rows* are polled separately; a ``website_monitor``
-    schedule only bumps ``next_run_at``.
+    Fail-soft: missing integration, insufficient credits, or provider errors
+    leave ``next_run_at`` unchanged so the next cron retries. Other due
+    schedules still run. ``assistant_ask`` stays unimplemented for a later slice.
     """
     stamp = now or _utcnow()
     if not task.enabled:
-        return False
+        return ScheduleRunResult(False, skipped_reason="disabled")
     due_at = _aware(task.next_run_at)
     if due_at is not None and due_at > stamp:
-        return False
-    if task.task_type in CREDENTIAL_GATED_TASK_TYPES | UNIMPLEMENTED_TASK_TYPES:
-        log.info("Skipping credential-gated or unimplemented schedule %s", task.id)
-        return False
-    if task.task_type != MONITOR_TASK_TYPE:
-        return False
-    task.next_run_at = next_run_for(task.cadence, stamp)
-    await session.flush()
-    return True
+        return ScheduleRunResult(False, skipped_reason="not_due")
+    if task.task_type == ASSISTANT_TASK_TYPE:
+        log.info("Skipping unimplemented assistant schedule %s", task.id)
+        return ScheduleRunResult(False, skipped_reason="unimplemented")
+    if task.task_type == MONITOR_TASK_TYPE:
+        task.next_run_at = next_run_for(task.cadence, stamp)
+        await session.flush()
+        return ScheduleRunResult(advanced=True)
+    if task.task_type == GMAIL_TASK_TYPE:
+        return await run_gmail_analyze(
+            session, task, now=stamp, analyze=gmail_analyze
+        )
+    if task.task_type == TELEGRAM_TASK_TYPE:
+        return await run_telegram_notify(
+            session, task, now=stamp, send=telegram_send
+        )
+    return ScheduleRunResult(False, skipped_reason="unknown")
 
 
 async def poll_due_monitors_in_session(
@@ -243,8 +257,10 @@ async def poll_due_monitors_in_session(
     *,
     fetch: FetchFn | None = None,
     now: datetime | None = None,
+    gmail_analyze: GmailAnalyzeFn | None = None,
+    telegram_send: TelegramSendFn | None = None,
 ) -> int:
-    """Check due monitors and reschedule OAuth-free tasks in one session."""
+    """Check due monitors and run due schedules in one session."""
     stamp = now or _utcnow()
     checked = 0
     for monitor in await list_due_monitors(session, now=stamp):
@@ -252,7 +268,13 @@ async def poll_due_monitors_in_session(
         if result.checked:
             checked += 1
     for task in await list_due_schedules(session, now=stamp):
-        await process_scheduled_task(session, task, now=stamp)
+        await process_scheduled_task(
+            session,
+            task,
+            now=stamp,
+            gmail_analyze=gmail_analyze,
+            telegram_send=telegram_send,
+        )
     return checked
 
 
@@ -260,6 +282,8 @@ async def run_poll_cycle(
     *,
     fetch: FetchFn | None = None,
     now: datetime | None = None,
+    gmail_analyze: GmailAnalyzeFn | None = None,
+    telegram_send: TelegramSendFn | None = None,
 ) -> int:
     """Admin-list due work, then apply ``app.user_id`` per tenant write."""
     from app.core.db import admin_session_factory, apply_tenant, init_engines_from_settings
@@ -294,7 +318,13 @@ async def run_poll_cycle(
                 task = await session.get(ScheduledTask, schedule_id)
                 if task is None or task.user_id != user_id:
                     continue
-                await process_scheduled_task(session, task, now=stamp)
+                await process_scheduled_task(
+                    session,
+                    task,
+                    now=stamp,
+                    gmail_analyze=gmail_analyze,
+                    telegram_send=telegram_send,
+                )
                 await session.commit()
         except Exception:
             log.exception("Scheduled task failed for %s", schedule_id)

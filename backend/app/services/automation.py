@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any
 from uuid import UUID
@@ -21,6 +22,7 @@ from app.services.gmail import (
 )
 from app.services.telegram import TelegramLinkError, TelegramService, telegram_configured
 
+log = logging.getLogger("app.integrations")
 
 INTEGRATION_CATALOG = (
     {
@@ -268,6 +270,29 @@ class IntegrationService:
             row.encrypted_credentials = blob
         await self._session.flush()
         return row
+
+    async def load_connected_credentials(
+        self, user_id: UUID, provider: str
+    ) -> dict[str, Any] | None:
+        """Decrypt credentials for worker jobs. Never expose this on public APIs."""
+        row = await self._get(user_id, provider, load_secrets=True)
+        if row is None or row.status != "connected" or not row.encrypted_credentials:
+            return None
+        try:
+            data = decrypt_json(row.encrypted_credentials)
+        except Exception:
+            log.info("Could not decrypt %s credentials", provider)
+            raise
+        return data if isinstance(data, dict) else None
+
+    async def store_credentials(
+        self, user_id: UUID, provider: str, credentials: dict[str, Any]
+    ) -> None:
+        row = await self._get(user_id, provider, load_secrets=True)
+        if row is None or row.status != "connected":
+            return
+        row.encrypted_credentials = encrypt_json(credentials)
+        await self._session.flush()
 
 
 class WebsiteMonitorService:

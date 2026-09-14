@@ -1,6 +1,7 @@
-"""Arq worker. Credit lot expiry + website monitor hash-check.
+"""Arq worker. Credit lot expiry + website monitor hash-check + due schedules.
 
-Gmail/Telegram schedules stay skipped; stored integration tokens are unused here.
+Gmail/Telegram jobs decrypt credentials only here (via schedule_jobs). Tokens
+never appear in logs, API JSON, or customer UI.
 """
 
 from arq.connections import RedisSettings
@@ -26,12 +27,17 @@ async def expire_credit_lots(ctx: dict) -> int:
 
 
 async def poll_due_monitors(ctx: dict) -> int:
-    """Hash-check due website monitors and bump OAuth-free schedules.
+    """Hash-check due website monitors and run due Gmail/Telegram schedules.
 
-    Optional ``ctx['fetch']`` is a test hook. Production uses HTTP GET.
+    Optional ``ctx['fetch']``, ``ctx['gmail_analyze']``, and ``ctx['telegram_send']``
+    are test hooks. Production uses live HTTP.
     """
-    fetch = ctx.get("fetch") if ctx else None
-    return await run_poll_cycle(fetch=fetch)
+    ctx = ctx or {}
+    return await run_poll_cycle(
+        fetch=ctx.get("fetch"),
+        gmail_analyze=ctx.get("gmail_analyze"),
+        telegram_send=ctx.get("telegram_send"),
+    )
 
 
 class WorkerSettings:
