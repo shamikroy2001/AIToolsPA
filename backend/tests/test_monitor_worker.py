@@ -317,12 +317,22 @@ async def test_credential_gated_schedules_are_left_due(session: AsyncSession):
         enabled=True,
         next_run_at=NOW - timedelta(hours=1),
     )
-    session.add_all([gated, telegram, site])
+    assistant = ScheduledTask(
+        user_id=user.id,
+        task_type="assistant_ask",
+        cadence="daily",
+        payload="{}",
+        enabled=True,
+        next_run_at=NOW - timedelta(hours=1),
+    )
+    session.add_all([gated, telegram, site, assistant])
     await session.flush()
 
-    assert await process_scheduled_task(session, gated, now=NOW) is False
-    assert await process_scheduled_task(session, telegram, now=NOW) is False
-    assert await process_scheduled_task(session, site, now=NOW) is True
+    assert (await process_scheduled_task(session, gated, now=NOW)).advanced is False
+    assert (await process_scheduled_task(session, telegram, now=NOW)).advanced is False
+    assert (await process_scheduled_task(session, site, now=NOW)).advanced is True
+    assert (await process_scheduled_task(session, assistant, now=NOW)).skipped_reason == "unimplemented"
     assert gated.next_run_at == NOW - timedelta(hours=1)
     assert telegram.next_run_at == NOW - timedelta(minutes=5)
+    assert assistant.next_run_at == NOW - timedelta(hours=1)
     assert site.next_run_at == NOW + timedelta(days=1)

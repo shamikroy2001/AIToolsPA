@@ -59,3 +59,36 @@ class TelegramService:
             "chat_id": str(stored_id),
             "username": username if isinstance(username, str) else "",
         }
+
+    async def send_message(self, chat_id: str, text: str) -> None:
+        """Deliver a message to a connected chat. Never logs the bot token or chat id."""
+        settings = get_settings()
+        token = settings.telegram_bot_token
+        if not token:
+            raise TelegramLinkError("Telegram connection is not configured yet.")
+        cleaned = (chat_id or "").strip()
+        if not cleaned or looks_like_bot_token(cleaned):
+            raise TelegramLinkError("Telegram chat_id is invalid.")
+        message = (text or "").strip()
+        if not message:
+            raise TelegramLinkError("Telegram message is required.")
+        url = f"{TELEGRAM_API}/bot{token}/sendMessage"
+        try:
+            async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
+                response = await client.post(
+                    url,
+                    json={"chat_id": cleaned, "text": message[:4096]},
+                )
+                body = response.json() if response.content else {}
+        except httpx.HTTPError as exc:
+            log.info("Telegram sendMessage failed")
+            raise TelegramSendError("Telegram notification could not be sent.") from exc
+        if response.status_code >= 400 or not isinstance(body, dict) or not body.get("ok"):
+            log.info("Telegram sendMessage rejected")
+            raise TelegramSendError("Telegram notification could not be sent.")
+
+
+class TelegramSendError(Exception):
+    def __init__(self, detail: str = "Telegram notification could not be sent.") -> None:
+        super().__init__(detail)
+        self.detail = detail
