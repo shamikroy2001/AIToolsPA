@@ -89,6 +89,37 @@ def test_plan_timestamps_are_timezone_aware():
     assert Plan.__table__.c.updated_at.type.timezone is True
 
 
+def test_credit_transaction_pg_bind_is_timestamptz():
+    """asyncpg DataError: aware utc_now bound as TIMESTAMP WITHOUT TIME ZONE."""
+    from sqlalchemy.dialects import postgresql
+    from sqlalchemy.schema import CreateTable
+
+    from app.models.assistant import AIUsage, AssistantTask
+    from app.models.credit import CreditAccount, CreditLot, CreditTransaction
+    from app.models.stripe_event import StripeEvent
+    from app.models.subscription import Subscription
+
+    for model, columns in (
+        (CreditTransaction, ("created_at",)),
+        (CreditAccount, ("created_at", "updated_at", "current_period_start", "current_period_end")),
+        (CreditLot, ("created_at", "expires_at")),
+        (Subscription, ("created_at", "updated_at")),
+        (StripeEvent, ("created_at",)),
+        (AssistantTask, ("created_at", "completed_at")),
+        (AIUsage, ("created_at",)),
+    ):
+        for name in columns:
+            col = model.__table__.c[name]
+            compiled = col.type.compile(dialect=postgresql.dialect()).upper()
+            assert col.type.timezone is True, f"{model.__tablename__}.{name}"
+            assert "WITHOUT" not in compiled, f"{model.__tablename__}.{name} compiled {compiled}"
+            assert compiled in {"TIMESTAMP WITH TIME ZONE", "TIMESTAMPTZ"}
+
+    ddl = str(CreateTable(CreditTransaction.__table__).compile(dialect=postgresql.dialect()))
+    assert "TIMESTAMP WITH TIME ZONE" in ddl
+    assert "TIMESTAMP WITHOUT TIME ZONE" not in ddl
+
+
 def test_missing_relation_detects_undefined_table():
     assert missing_relation(Exception('relation "plans" does not exist'))
     assert missing_relation(Exception("asyncpg.exceptions.UndefinedTableError"))

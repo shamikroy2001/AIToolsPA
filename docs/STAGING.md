@@ -53,6 +53,17 @@ This repo cannot create your Railway / Vercel / Supabase / Clerk / Stripe projec
 9. **AI Gateway:** key and route model IDs on Railway only.
 10. Confirm CORS: `PUBLIC_APP_URL` and `CORS_ORIGINS` equal the Vercel origin.
 
+### POST /api/tasks 503 after profile GET works (credit_transactions timestamptz)
+
+After PR #5, `GET /api/me/assistant` is 200. `POST /api/tasks` then failed in `CreditService.reserve` **before the AI call** with JSON 503 (CORS ok) and no debit:
+
+```
+asyncpg.exceptions.DataError: can't subtract offset-naive and offset-aware datetimes
+INSERT INTO credit_transactions (..., created_at) VALUES (..., $9::TIMESTAMP WITHOUT TIME ZONE)
+```
+
+`utc_now()` is timezone-aware. The ORM mapped `created_at` as naive `DateTime`, so asyncpg bound `TIMESTAMP WITHOUT TIME ZONE`. Alembic `0002` created `timestamptz`. The models now use `DateTime(timezone=True)`; Alembic `0007_credit_timestamptz` converts any leftover naive columns on `credit_*`, `subscriptions`, `stripe_events`, and assistant task/usage timestamps.
+
 ### GET/PATCH /api/me/assistant and POST /api/tasks 500 while D2 GETs work
 
 Confirmed on live Railway HTTP logs (staging still on `main` `60a3905`), not only the older `task_costs` INSERT theory. Operator disabled RLS on `task_costs` and seeded `assistant_ask`; ask still 500s.

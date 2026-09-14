@@ -4,15 +4,17 @@ from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
 import app.models  # noqa: F401
+from app.core.plan_catalog import DEFAULT_PLANS
 from app.models.base import Base
+from app.models.credit import TX_RESERVATION, CreditTransaction
 from app.models.plan import Plan
 from app.models.user import User
 from app.services.credits import CreditService, InsufficientCredits
-from app.core.plan_catalog import DEFAULT_PLANS
 
 
 @pytest.fixture
@@ -127,3 +129,25 @@ async def test_insufficient_credits(credit_session: AsyncSession):
     await credits.allocate_period(user, plan, start, end, now=start)
     with pytest.raises(InsufficientCredits):
         await credits.consume(user.id, 1001, now=start + timedelta(days=1))
+
+
+@pytest.mark.asyncio
+async def test_reserve_writes_timezone_aware_created_at(credit_session: AsyncSession):
+    """Live ask 503'd on CreditTransaction.created_at naive bind during reserve."""
+    user, plan = await _user_and_plan(credit_session)
+    credits = CreditService(credit_session)
+    start = datetime(2026, 9, 1, tzinfo=timezone.utc)
+    end = datetime(2026, 10, 1, tzinfo=timezone.utc)
+    await credits.allocate_period(user, plan, start, end, now=start)
+    task_id = uuid4()
+    await credits.reserve(user.id, 5, task_id=task_id)
+    row = await credit_session.scalar(
+        select(CreditTransaction).where(
+            CreditTransaction.task_id == task_id,
+            CreditTransaction.transaction_type == TX_RESERVATION,
+        )
+    )
+    assert row is not None
+    assert row.amount == -5
+    assert row.created_at.tzinfo is not None
+    assert await credits.available(user.id, now=start + timedelta(days=1)) == 4995
