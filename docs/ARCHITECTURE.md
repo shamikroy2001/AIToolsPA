@@ -37,6 +37,8 @@ Every customer row has `user_id`. FastAPI sets `SET LOCAL app.user_id` and still
 
 `AuthService`, `BillingService`, `CreditService`, `AssistantService`, `TaskService`, `AIRouter`, `AIUsageService`, `GmailService`, `TelegramService`, `WebsiteMonitorService`, `NotificationService`, `SchedulerService`.
 
+`GmailService` runs read-only OAuth (`gmail.readonly`) and stores Fernet-encrypted tokens. `TelegramService` verifies a chat ID with the server bot token and stores encrypted chat metadata only. Neither service returns credentials on customer APIs.
+
 `AIRouter` does not know about Stripe. `CreditService` does not know about providers.
 
 ## Current repo note

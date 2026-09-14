@@ -70,6 +70,8 @@ class Settings(BaseSettings):
 
     gmail_client_id: str | None = None
     gmail_client_secret: str | None = None
+    gmail_redirect_uri: str | None = None
+    public_api_url: str | None = None
 
     telegram_bot_token: str | None = None
 

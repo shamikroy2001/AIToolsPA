@@ -7,8 +7,8 @@ export default function IntegrationsPage() {
       <div>
         <h1 className="text-3xl font-semibold tracking-tight">Connections</h1>
         <ComingIn release="D2">
-          Gmail and Telegram. Connect returns 503 until OAuth is configured. Credentials stay on
-          the server.
+          Gmail (read-only OAuth) and Telegram (chat ID). Connect returns 503 until server env is
+          set. Tokens stay on the server.
         </ComingIn>
       </div>
     );

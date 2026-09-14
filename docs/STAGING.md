@@ -112,7 +112,7 @@ Do not start D2 work until this list is checked off in staging.
 Catalog, monitors, schedules, and notifications APIs plus Connections / Monitoring pages.
 
 - No new Railway or Vercel secrets.
-- `POST /api/integrations/gmail/connect` and Telegram connect return 503 until OAuth env exists. Real OAuth is a later slice.
+- `POST /api/integrations/gmail/connect` and Telegram connect return 503 until OAuth env exists. Real OAuth is Slice 4.
 - Worker registers `poll_due_monitors` as a no-op cron so Arq is proven. Real hash-check polling comes next.
 - Leave `/health` `release` as `D1-staging` until these APIs are proven on staging. Do not enable Stripe.
 
@@ -130,3 +130,34 @@ Catalog, monitors, schedules, and notifications APIs plus Connections / Monitori
 - **Schedules:** `gmail_analyze` / `telegram_notify` / `assistant_ask` are skipped and stay due. A `website_monitor` schedule only advances `next_run_at` — the actual fetch is the monitor row poll.
 - **Railway worker** may not exist yet in `dazzling-transformation`. Add a second service with Dockerfile `Dockerfile.worker` and start command `python -m arq app.workers.arq_worker.WorkerSettings`. Same `REDIS_URL` and `DATABASE_ADMIN_URL` as D1. Do not run Alembic on the worker. Do not add Gmail/Telegram secrets.
 - Leave `/health` `release` as `D1-staging`. Do not enable Stripe.
+
+## D2 Slice 4 (Gmail + Telegram connect; release stays D1-staging)
+
+Connect/disconnect for Gmail (read-only OAuth) and Telegram (shared bot + per-user chat ID). Tokens are encrypted in `integrations.encrypted_credentials` and never appear in JSON or the Connections UI.
+
+When `GMAIL_*` / `TELEGRAM_*` are missing, connect stays a clear **503**. Staging can merge and run without those secrets.
+
+### Railway API env (optional — leave empty to keep connect paused)
+
+Set these on the **API** service only. Do not put them on Vercel. Do not commit values.
+
+| Variable | Purpose |
+|---|---|
+| `GMAIL_CLIENT_ID` | Google OAuth client ID |
+| `GMAIL_CLIENT_SECRET` | Google OAuth client secret (server-only) |
+| `GMAIL_REDIRECT_URI` | Authorized redirect: `https://<railway-api-host>/api/integrations/gmail/callback` |
+| `PUBLIC_API_URL` | Fallback for building the callback if `GMAIL_REDIRECT_URI` is unset (`https://<railway-api-host>`) |
+| `CREDENTIAL_ENCRYPTION_KEY` | Fernet key wrapping stored tokens. Generate with `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"` |
+| `TELEGRAM_BOT_TOKEN` | Bot token from BotFather. Never shown to customers |
+
+Google Cloud Console (OAuth web client) must allow that exact `GMAIL_REDIRECT_URI`. After Google consent, the API stores encrypted tokens and 302s to `{PUBLIC_APP_URL}/integrations?gmail=connected`.
+
+Telegram: the customer pastes a numeric chat ID. The API calls `getChat` with the server bot token, then stores encrypted `{chat_id, username}` only — not the bot token.
+
+Disconnect clears the row and, for Gmail, best-effort revokes the refresh token.
+
+### Out of scope for this slice
+
+- Worker still **skips** `gmail_analyze` / `telegram_notify` schedules (same as Slice 3).
+- Do not enable Stripe. Do not change `/health` `release` from `D1-staging`.
+- Do not add Google/Telegram secrets to the frontend or the git repo.

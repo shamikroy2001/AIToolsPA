@@ -7,10 +7,19 @@ from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import undefer
 
-from app.core.settings import get_settings
+from app.core.crypto import EncryptionUnavailable, decrypt_json, encrypt_json
 from app.models.automation import Integration, MonitoredWebsite, Notification, ScheduledTask
 from app.schemas.automation import ALLOWED_PROVIDERS, IntegrationPublic
+from app.services.gmail import (
+    GmailOAuthError,
+    GmailService,
+    decode_oauth_state,
+    encode_oauth_state,
+    gmail_configured,
+)
+from app.services.telegram import TelegramLinkError, TelegramService, telegram_configured
 
 
 INTEGRATION_CATALOG = (
@@ -39,6 +48,47 @@ class IntegrationUnavailable(Exception):
         self.detail = detail
 
 
+class IntegrationBadRequest(Exception):
+    def __init__(self, detail: str) -> None:
+        super().__init__(detail)
+        self.detail = detail
+
+
+def public_account_label(credentials: dict[str, Any] | None) -> str | None:
+    if not credentials:
+        return None
+    email = credentials.get("email")
+    if isinstance(email, str) and email and "@" in email:
+        return email
+    username = credentials.get("username")
+    if isinstance(username, str) and username.strip():
+        label = username.strip()
+        return label if label.startswith("@") else f"@{label}"
+    return None
+
+
+def _catalog_spec(provider: str) -> dict[str, str]:
+    return next(item for item in INTEGRATION_CATALOG if item["provider"] == provider)
+
+
+def _public_item(
+    provider: str,
+    *,
+    status: str,
+    account_label: str | None = None,
+    authorize_url: str | None = None,
+) -> IntegrationPublic:
+    spec = _catalog_spec(provider)
+    return IntegrationPublic(
+        provider=spec["provider"],
+        name=spec["name"],
+        description=spec["description"],
+        status=status,
+        account_label=account_label,
+        authorize_url=authorize_url,
+    )
+
+
 def next_run_for(cadence: str, now: datetime | None = None) -> datetime:
     stamp = now or datetime.now(timezone.utc)
     if cadence == "hourly":
@@ -63,58 +113,161 @@ def _payload_loads(raw: str) -> dict[str, Any]:
 class IntegrationService:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
+        self._gmail = GmailService()
+        self._telegram = TelegramService()
+
+    async def _get(
+        self, user_id: UUID, provider: str, *, load_secrets: bool = False
+    ) -> Integration | None:
+        query = select(Integration).where(
+            Integration.user_id == user_id,
+            Integration.provider == provider,
+        )
+        if load_secrets:
+            query = query.options(undefer(Integration.encrypted_credentials))
+        return await self._session.scalar(query)
+
+    def _label_from_row(self, row: Integration | None) -> str | None:
+        if row is None or row.status != "connected" or not row.encrypted_credentials:
+            return None
+        try:
+            return public_account_label(decrypt_json(row.encrypted_credentials))
+        except Exception:
+            return None
 
     async def catalog(self, user_id: UUID) -> list[IntegrationPublic]:
         result = await self._session.scalars(
-            select(Integration).where(Integration.user_id == user_id)
+            select(Integration)
+            .options(undefer(Integration.encrypted_credentials))
+            .where(Integration.user_id == user_id)
         )
         by_provider = {row.provider: row for row in result.all()}
         items: list[IntegrationPublic] = []
         for spec in INTEGRATION_CATALOG:
             row = by_provider.get(spec["provider"])
             items.append(
-                IntegrationPublic(
-                    provider=spec["provider"],
-                    name=spec["name"],
-                    description=spec["description"],
+                _public_item(
+                    spec["provider"],
                     status=row.status if row is not None else "disconnected",
+                    account_label=self._label_from_row(row),
                 )
             )
         return items
 
-    async def connect(self, user_id: UUID, provider: str) -> None:
-        del user_id
+    async def start_gmail(self, user_id: UUID, *, redirect_uri: str) -> IntegrationPublic:
+        if not gmail_configured():
+            raise IntegrationUnavailable("Gmail connection is not configured yet.")
+        try:
+            state = encode_oauth_state(user_id)
+            url = self._gmail.authorization_url(redirect_uri=redirect_uri, state=state)
+        except EncryptionUnavailable as exc:
+            raise IntegrationUnavailable(str(exc)) from exc
+        except GmailOAuthError as exc:
+            raise IntegrationUnavailable(exc.detail) from exc
+        return _public_item("gmail", status="disconnected", authorize_url=url)
+
+    async def complete_gmail(
+        self,
+        user_id: UUID,
+        *,
+        code: str,
+        state: str,
+        redirect_uri: str,
+    ) -> IntegrationPublic:
+        if not gmail_configured():
+            raise IntegrationUnavailable("Gmail connection is not configured yet.")
+        if not code or not state:
+            raise IntegrationBadRequest("Gmail authorization code is required.")
+        try:
+            decode_oauth_state(state, expected_user_id=user_id)
+            credentials = await self._gmail.exchange_code(code, redirect_uri=redirect_uri)
+            row = await self._upsert(user_id, "gmail", credentials=credentials)
+        except EncryptionUnavailable as exc:
+            raise IntegrationUnavailable(str(exc)) from exc
+        except GmailOAuthError as exc:
+            raise IntegrationBadRequest(exc.detail) from exc
+        return _public_item(
+            "gmail",
+            status=row.status,
+            account_label=public_account_label(credentials),
+        )
+
+    async def connect_telegram(self, user_id: UUID, *, chat_id: str | None) -> IntegrationPublic:
+        if not telegram_configured():
+            raise IntegrationUnavailable("Telegram connection is not configured yet.")
+        if not chat_id:
+            raise IntegrationBadRequest("Telegram chat_id is required.")
+        try:
+            credentials = await self._telegram.verify_chat(chat_id)
+            row = await self._upsert(user_id, "telegram", credentials=credentials)
+        except EncryptionUnavailable as exc:
+            raise IntegrationUnavailable(str(exc)) from exc
+        except TelegramLinkError as exc:
+            if "not configured" in exc.detail.lower():
+                raise IntegrationUnavailable(exc.detail) from exc
+            raise IntegrationBadRequest(exc.detail) from exc
+        return _public_item(
+            "telegram",
+            status=row.status,
+            account_label=public_account_label(credentials),
+        )
+
+    async def connect(
+        self,
+        user_id: UUID,
+        provider: str,
+        *,
+        redirect_uri: str,
+        code: str | None = None,
+        state: str | None = None,
+        chat_id: str | None = None,
+    ) -> IntegrationPublic:
         if provider not in ALLOWED_PROVIDERS:
             raise KeyError(provider)
-        settings = get_settings()
         if provider == "gmail":
-            if not settings.gmail_client_id or not settings.gmail_client_secret:
-                raise IntegrationUnavailable("Gmail connection is not configured yet.")
-            raise IntegrationUnavailable("Gmail connection is not available yet.")
-        if not settings.telegram_bot_token:
-            raise IntegrationUnavailable("Telegram connection is not configured yet.")
-        raise IntegrationUnavailable("Telegram connection is not available yet.")
+            if code or state:
+                return await self.complete_gmail(
+                    user_id, code=code or "", state=state or "", redirect_uri=redirect_uri
+                )
+            return await self.start_gmail(user_id, redirect_uri=redirect_uri)
+        return await self.connect_telegram(user_id, chat_id=chat_id)
 
     async def disconnect(self, user_id: UUID, provider: str) -> IntegrationPublic:
         if provider not in ALLOWED_PROVIDERS:
             raise KeyError(provider)
-        row = await self._session.scalar(
-            select(Integration).where(
-                Integration.user_id == user_id,
-                Integration.provider == provider,
-            )
-        )
+        row = await self._get(user_id, provider, load_secrets=True)
         if row is not None:
+            if provider == "gmail" and row.encrypted_credentials:
+                token = ""
+                try:
+                    creds = decrypt_json(row.encrypted_credentials)
+                    token = str(creds.get("refresh_token") or creds.get("access_token") or "")
+                except Exception:
+                    token = ""
+                await self._gmail.revoke(token)
             row.status = "disconnected"
             row.encrypted_credentials = ""
             await self._session.flush()
-        spec = next(item for item in INTEGRATION_CATALOG if item["provider"] == provider)
-        return IntegrationPublic(
-            provider=spec["provider"],
-            name=spec["name"],
-            description=spec["description"],
-            status="disconnected",
-        )
+        return _public_item(provider, status="disconnected")
+
+    async def _upsert(
+        self, user_id: UUID, provider: str, *, credentials: dict[str, Any]
+    ) -> Integration:
+        blob = encrypt_json(credentials)
+        row = await self._get(user_id, provider, load_secrets=True)
+        if row is None:
+            row = Integration(
+                user_id=user_id,
+                provider=provider,
+                status="connected",
+                encrypted_credentials=blob,
+            )
+            self._session.add(row)
+        else:
+            row.status = "connected"
+            row.encrypted_credentials = blob
+        await self._session.flush()
+        return row
 
 
 class WebsiteMonitorService:

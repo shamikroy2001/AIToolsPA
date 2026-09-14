@@ -1,4 +1,4 @@
-"""Automation catalog, monitors, schedules, notifications. No live Gmail/Telegram."""
+"""Automation catalog, monitors, schedules, notifications. Connect secrets stay server-side."""
 
 from __future__ import annotations
 
@@ -61,7 +61,7 @@ def test_telegram_connect_without_env_is_503(saas_client: TestClient):
     _assert_no_secrets(response.json())
 
 
-def test_gmail_connect_with_env_still_does_not_return_tokens(
+def test_gmail_connect_with_env_returns_authorize_url_without_tokens(
     saas_client: TestClient, monkeypatch
 ):
     monkeypatch.setenv("GMAIL_CLIENT_ID", "client-id")
@@ -69,8 +69,15 @@ def test_gmail_connect_with_env_still_does_not_return_tokens(
     clear_settings_cache()
     saas_client.get("/api/me", headers=_auth())
     response = saas_client.post("/api/integrations/gmail/connect", headers=_auth())
-    assert response.status_code == 503
-    _assert_no_secrets(response.json())
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "disconnected"
+    assert body["authorize_url"]
+    assert "accounts.google.com" in body["authorize_url"]
+    assert "gmail.readonly" in body["authorize_url"]
+    assert "gmail.send" not in body["authorize_url"]
+    assert "gmail.modify" not in body["authorize_url"]
+    _assert_no_secrets(body)
     monkeypatch.delenv("GMAIL_CLIENT_ID", raising=False)
     monkeypatch.delenv("GMAIL_CLIENT_SECRET", raising=False)
     clear_settings_cache()

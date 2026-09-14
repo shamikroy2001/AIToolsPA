@@ -216,8 +216,9 @@ async def process_scheduled_task(
 ) -> bool:
     """Advance OAuth-free website_monitor schedules; skip credential-gated types.
 
-    ``gmail_analyze`` and ``telegram_notify`` stay due until an OAuth slice
-    can run them. ``assistant_ask`` is also left in place (AI unused here).
+    ``gmail_analyze`` and ``telegram_notify`` stay due even after Slice 4
+    connect/disconnect stores credentials. ``assistant_ask`` is also left
+    in place (AI unused here).
     Website monitor *rows* are polled separately; a ``website_monitor``
     schedule only bumps ``next_run_at``.
     """

@@ -17,7 +17,7 @@ Planned tables (D1 unless noted):
 - `assistant_tasks` — type, status, input/output, credits reserved/charged
 - `ai_usage` — provider, model, tokens, actual_cost (admin-only; never customer APIs)
 - `stripe_events` — webhook idempotency keys
-- D2: `integrations`, `scheduled_tasks`, `monitored_websites`, `notifications`
+- D2: `integrations` (Fernet-encrypted credentials at rest; public APIs return status + non-secret `account_label` only), `scheduled_tasks`, `monitored_websites`, `notifications`
 
 RLS policies use `current_setting('app.user_id', true)`. Service role is limited to webhooks, admin, and workers that set tenant context explicitly.
 
